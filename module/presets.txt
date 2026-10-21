@@ -1,0 +1,10 @@
+# PianoMax preset table.  Single source of truth: profile.sh reads this on
+# the device, the WebUI gets the same values through control.sh, and
+# build.mjs refuses to ship when this file and the WebUI disagree.
+# Columns are tab separated; a missing column breaks the module loudly
+# rather than silently.
+# key        name  cpu0     cpu6     gpu  ddr      llcc    tripC tripS zones
+powersave	省电	1555200	1958400	10	1353000	533000	90000	50000	kernel
+balanced	均衡	2400000	2841600	6	3187000	933000	100000	55000	module
+performance	性能	3072000	3513600	4	4224000	1066000	105000	62000	module
+extreme	极限	3532800	4320000	0	4761000	1211000	105000	75000	module

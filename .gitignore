@@ -1,0 +1,9 @@
+release/*.zip
+*.log
+.state
+.state.tmp
+.target
+.stage
+.trip
+module/webroot/_*
+.research/

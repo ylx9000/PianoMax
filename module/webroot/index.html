@@ -1,0 +1,1187 @@
+<!doctype html>
+<html lang="zh" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<!-- KernelSU injects this to make the WebView respect IME insets; harmless if absent. -->
+<link rel="stylesheet" href="/internal/insets.css" media="screen">
+<meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme:light)">
+<meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme:dark)">
+<title>PianoMax</title>
+<link rel="icon" type="image/png" href="logo.png">
+<style>
+:root{
+  --bg:#f7f7f8; --surface:#ffffff; --surface-2:#fbfbfc; --field:#f2f2f4;
+  --fg:#101013; --fg-2:#5c5c66; --fg-3:#8e8e99;
+  --line:#e6e6ea; --line-2:#f0f0f3;
+  --accent:#0a66ff; --accent-fg:#ffffff; --accent-soft:#e8f0ff;
+  --ok:#0f9d58; --warn:#c2740a; --bad:#d93b3b;
+  --ok-soft:#e6f6ec; --warn-soft:#fdf3e2; --bad-soft:#fdeceb;
+  --radius:14px; --radius-sm:10px; --radius-pill:999px;
+  --shadow:0 1px 2px rgba(16,16,19,.06);
+  --ease:cubic-bezier(.32,.72,0,1);
+}
+html[data-theme="dark"]{
+  --bg:#0b0b0d; --surface:#141418; --surface-2:#101013; --field:#1c1c21;
+  --fg:#f2f2f5; --fg-2:#a5a5b0; --fg-3:#6f6f7a;
+  --line:#26262d; --line-2:#1d1d23;
+  --accent:#4c8dff; --accent-fg:#08111f; --accent-soft:#122036;
+  --ok:#43c07a; --warn:#e0a33c; --bad:#ff6b6b;
+  --ok-soft:#0f2418; --warn-soft:#2a1f0d; --bad-soft:#2a1313;
+  --shadow:0 1px 2px rgba(0,0,0,.5);
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg)}
+html{color-scheme:light dark}
+body{
+  background:var(--bg);color:var(--fg);
+  font:15px/1.55 "MiSans","MiSans VF","HarmonyOS Sans",-apple-system,system-ui,Roboto,"Noto Sans CJK SC","PingFang SC",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  padding:0 max(16px,env(safe-area-inset-right)) max(32px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+  -webkit-tap-highlight-color:transparent;
+  overscroll-behavior-y:contain;
+}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.wrap{max-width:600px;margin:0 auto}
+header{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 18px) 0 14px}
+header .name{font-size:19px;font-weight:650;letter-spacing:-.01em}
+.brand{width:26px;height:26px;flex:none}
+.brand-light-img{display:none}
+html[data-theme="dark"] .brand-dark-img{display:none}
+html[data-theme="dark"] .brand-light-img{display:block}
+header .ver{font-size:12px;color:var(--fg-3);margin-left:2px}
+header .grow{flex:1}
+.icon{width:34px;height:34px;border-radius:var(--radius-sm);border:1px solid var(--line);
+  background:var(--surface);color:var(--fg-2);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:background .15s var(--ease);font-size:15px;line-height:1}
+.icon:active{background:var(--field)}
+.verdict{
+  display:flex;align-items:flex-start;gap:12px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 15px;margin-bottom:12px;box-shadow:var(--shadow);
+  transition:background .2s var(--ease),border-color .2s var(--ease);
+}
+.verdict.warn{background:var(--warn-soft);border-color:transparent}
+.verdict.bad{background:var(--bad-soft);border-color:transparent}
+.verdict:not(.warn):not(.bad) .l2{display:none}
+.verdict .dot{width:9px;height:9px;border-radius:50%;margin-top:7px;flex:none;background:var(--ok)}
+.verdict.warn .dot{background:var(--warn)}
+.verdict.bad .dot{background:var(--bad)}
+.verdict .body{flex:1;min-width:0}
+.verdict .l1{font-size:14px;font-weight:600;letter-spacing:-.005em}
+.verdict .l2{font-size:12.5px;color:var(--fg-2);margin-top:3px;line-height:1.5}
+.verdict .act{font-size:12.5px;color:var(--accent);font-weight:600;cursor:pointer;flex:none;
+  padding:5px 11px;border-radius:var(--radius-pill);background:var(--surface);border:1px solid var(--line);
+  transition:transform .12s var(--ease)}
+.verdict .act:active{transform:scale(.96)}
+.verdict .act[hidden]{display:none}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 8px;text-align:center;box-shadow:var(--shadow);min-width:0}
+.tile .v{font-size:15px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .k{font-size:12px;color:var(--fg-3);margin-top:2px}
+.tile.hot .v{color:var(--warn)}
+.tile.bad .v{color:var(--bad)}
+nav{display:flex;gap:4px;background:var(--field);padding:4px;border-radius:var(--radius-pill);margin-bottom:16px}
+nav button{flex:1;border:0;background:transparent;color:var(--fg-2);font:inherit;font-size:13.5px;font-weight:550;
+  padding:8px 4px;border-radius:var(--radius-pill);cursor:pointer;appearance:none;-webkit-appearance:none;
+  transition:background .18s var(--ease),color .18s var(--ease)}
+nav button.on{background:var(--surface);color:var(--fg);font-weight:650;box-shadow:var(--shadow)}
+nav button:focus:not(:focus-visible){outline:none}
+section{display:none;animation:enter .22s var(--ease)}
+section.on{display:block}
+@keyframes enter{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.prof{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.prof button{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);
+  padding:12px 6px 11px;cursor:pointer;font:inherit;color:var(--fg-2);text-align:center;
+  transition:background .16s var(--ease),border-color .16s var(--ease),color .16s var(--ease),transform .12s var(--ease);
+  box-shadow:var(--shadow);min-width:0;-webkit-appearance:none;appearance:none}
+.prof button .n{font-size:14.5px;font-weight:650;color:var(--fg);letter-spacing:-.01em;display:block}
+.prof button .d{font-size:11.5px;margin-top:3px;color:var(--fg-3);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prof button:active{transform:scale(.975)}
+.prof button.on{background:var(--accent);border-color:transparent}
+.prof button.on .n,.prof button.on .d{color:var(--accent-fg)}
+.prof button.on .d{opacity:.82}
+.prof button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.prof button:focus:not(:focus-visible){outline:none}
+.group{margin-bottom:20px}
+.group>h2{font-size:12px;font-weight:600;color:var(--fg-3);letter-spacing:.04em;text-transform:none;margin:0 0 8px 2px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+.row{display:flex;align-items:center;gap:12px;padding:10px 15px;min-height:64px;border-top:1px solid var(--line-2);flex-wrap:nowrap}
+.row.grow{flex-wrap:wrap}
+.row:first-child{border-top:0}
+.row .txt{flex:1;min-width:0}
+.row .t1{font-size:14.5px;font-weight:500;letter-spacing:-.005em;display:flex;align-items:center;gap:6px}
+.row .t2{font-size:12px;color:var(--fg-3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.row .val{font-size:14.5px;font-variant-numeric:tabular-nums;color:var(--fg-2);flex:none}
+.tag{font-size:10px;font-weight:600;letter-spacing:.02em;padding:1px 6px;border-radius:var(--radius-pill);flex:none}
+.tag.ro{background:var(--field);color:var(--fg-3)}
+.tag.ov{background:var(--warn-soft);color:var(--warn)}
+.tag.miss{background:var(--bad-soft);color:var(--bad)}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.step{display:flex;align-items:center;gap:0;flex:none;background:var(--field);border-radius:var(--radius-sm);overflow:hidden}
+.step button{width:44px;height:44px;border:0;background:transparent;color:var(--fg);font-size:17px;line-height:1;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transition:background .12s}
+.step button:active{background:var(--line)}
+.step button:disabled{color:var(--fg-3);cursor:default}
+.step input{width:92px;height:44px;border:0;background:transparent;color:var(--fg);text-align:center;
+  font:inherit;font-size:13.5px;font-variant-numeric:tabular-nums;padding:0;appearance:textfield}
+.step input::-webkit-outer-spin-button,.step input::-webkit-inner-spin-button{appearance:none;margin:0}
+.sw{position:relative;width:52px;height:31px;flex:none;display:inline-flex}
+.sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:2}
+.sw .track{width:100%;height:100%;border-radius:var(--radius-pill);background:var(--line);transition:background .2s var(--ease);pointer-events:none}
+.sw .knob{position:absolute;top:3px;left:3px;width:25px;height:25px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .22s var(--ease);pointer-events:none}
+.sw input:checked~.track{background:var(--accent)}
+.sw input:checked~.knob{transform:translateX(21px)}
+.sw input:focus-visible~.track{outline:2px solid var(--accent);outline-offset:2px}
+select{border:1px solid var(--line);background:var(--surface);color:var(--fg);font:inherit;font-size:13.5px;
+  padding:6px 26px 6px 10px;border-radius:var(--radius-sm);appearance:none;cursor:pointer;color-scheme:inherit;
+  background-image:linear-gradient(45deg,transparent 50%,var(--fg-3) 50%),linear-gradient(135deg,var(--fg-3) 50%,transparent 50%);
+  background-position:calc(100% - 14px) 51%,calc(100% - 9px) 51%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+.meter{height:3px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:7px}
+.meter i{display:block;height:100%;background:var(--accent);transition:width .4s var(--ease)}
+.meter i.hot{background:var(--warn)} .meter i.bad{background:var(--bad)}
+.note{font-size:12px;color:var(--fg-3);line-height:1.6;margin:8px 2px 0}
+.btn{width:100%;border:1px solid var(--line);background:var(--surface);color:var(--fg);font:inherit;font-size:14px;
+  font-weight:550;padding:12px;border-radius:var(--radius);cursor:pointer;transition:background .15s}
+.btn:active{background:var(--field)}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent}
+.btn.ghost{background:transparent}
+.btn:disabled{opacity:.45;cursor:default}
+.pre{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-sm);
+  padding:11px 12px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg-2);
+  white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto;margin-top:10px}
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 20px);transform:translate(-50%,14px);
+  background:#101013;color:#fff;font-size:13.5px;padding:10px 16px;border-radius:var(--radius-pill);
+  opacity:0;pointer-events:none;transition:opacity .2s var(--ease),transform .2s var(--ease);
+  max-width:calc(100% - 32px);text-align:center;z-index:99;box-shadow:0 6px 22px rgba(0,0,0,.28)}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+#toast.bad{background:var(--bad)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="logo.png" alt="" class="brand brand-dark-img">
+    <img src="logo-light.png" alt="" class="brand brand-light-img">
+    <div class="name">PianoMax</div>
+    <div class="ver" id="ver"></div>
+    <div class="grow"></div>
+    <button class="icon" id="themeBtn" aria-label="切换深浅色">◐</button>
+  </header>
+
+  <div class="group" style="margin-bottom:12px">
+    <div class="card">
+      <div class="row">
+        <div class="txt"><div class="t1">模块总开关</div><div class="t2" id="swDesc">应用全部参数，或还原出厂值</div></div>
+        <label class="sw"><input type="checkbox" id="swMaster" aria-label="模块总开关"><span class="track"></span><span class="knob"></span></label>
+      </div>
+    </div>
+  </div>
+
+  <div class="verdict" id="verdict">
+    <span class="dot"></span>
+    <div class="body">
+      <div class="l1" id="vTitle">读取中</div>
+      <div class="l2" id="vDesc"></div>
+    </div>
+    <span class="act" id="vAct" hidden>恢复</span>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="v" id="kCpu">—</div><div class="k">CPU GHz</div></div>
+    <div class="tile"><div class="v" id="kGpu">—</div><div class="k">GPU MHz</div></div>
+    <div class="tile" id="tTile"><div class="v" id="kTemp">—</div><div class="k">最高温度</div></div>
+    <div class="tile"><div class="v" id="kMem">—</div><div class="k">可用内存</div></div>
+  </div>
+
+  <nav role="tablist">
+    <button role="tab" aria-selected="true" class="on" data-p="pPerf">性能</button>
+    <button role="tab" aria-selected="false" data-p="pTherm">温控</button>
+    <button role="tab" aria-selected="false" data-p="pMem">内存</button>
+    <button role="tab" aria-selected="false" data-p="pSched">调度</button>
+    <button role="tab" aria-selected="false" data-p="pSys">系统</button>
+  </nav>
+
+  <section id="pPerf" class="on">
+    <div class="group">
+      <h2>性能档位</h2>
+      <div class="prof" id="profRow"></div>
+      <div class="note" id="profNote">四个档位各自是一组完整的参数。切换后下面所有滑块都会跟着变；手动拖过的滑块会覆盖档位值，直到你再选一次档位。</div>
+    </div>
+
+    <div class="group">
+      <h2>CPU 频率上限</h2>
+      <div class="card" id="cpuCard"></div>
+      <div class="note" id="cpuNote"></div>
+    </div>
+
+    <div class="group">
+      <h2>GPU</h2>
+      <div class="card" id="gpuCard"></div>
+    </div>
+
+    <div class="group">
+      <h2>总线</h2>
+      <div class="card" id="busCard"></div>
+    </div>
+  </section>
+
+  <section id="pTherm">
+    <div class="group">
+      <h2>温度与保护</h2>
+      <div class="card">
+        <div class="row">
+          <div class="txt"><div class="t1">芯片最高温度</div><div class="t2" id="tmaxSub">实时读数</div></div>
+          <div class="val" id="tmaxVal">—</div>
+        </div>
+        <div class="row">
+          <div class="txt"><div class="t1">芯片绊线</div><div class="t2">结温上限，越线自动降档</div></div>
+          <div class="step" data-k="trip">
+            <button data-d="-1" aria-label="降低">−</button>
+            <input type="text" inputmode="numeric" aria-label="芯片绊线温度">
+            <button data-d="1" aria-label="提高">+</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="txt"><div class="t1">机身绊线</div><div class="t2">外壳温度上限，越线自动降档</div></div>
+          <div class="step" data-k="trip_skin">
+            <button data-d="-1" aria-label="降低">−</button>
+            <input type="text" inputmode="numeric" aria-label="机身绊线温度">
+            <button data-d="1" aria-label="提高">+</button>
+          </div>
+        </div>
+      </div>
+        <div class="note">两条绊线彼此独立，默认值随档位变化（芯片 90-105 °C，机身 50-75 °C，见 README 档位表）。越线后先降一档维持运行，仍过热再降一档，级数用尽才整体还原并暂停；温度回落两分钟后逐级恢复。极限档满载时芯片结温将接近 105，触发属于保护机制生效而非故障。</div>
+    </div>
+
+    <div class="group">
+      <h2>软温控温区</h2>
+      <div class="card">
+        <div class="row">
+          <div class="txt"><div class="t1">停用软温控降频</div><div class="t2" id="zoneSub">—</div></div>
+          <label class="sw"><input type="checkbox" id="swZones" aria-label="停用软温控降频"><span class="track"></span><span class="knob"></span></label>
+        </div>
+      </div>
+      <div class="note" id="zoneNote"></div>
+    </div>
+
+    <div class="group">
+      <h2>温度明细</h2>
+      <div class="card" id="tempCard"></div>
+    </div>
+  </section>
+
+  <section id="pMem">
+    <div class="group">
+      <h2>内存回收</h2>
+      <div class="card" id="memCard"></div>
+    </div>
+    <div class="group">
+      <h2>内存实况</h2>
+      <div class="card" id="memLive"></div>
+    </div>
+  </section>
+
+  <section id="pSched">
+    <div class="group">
+      <h2>调度器</h2>
+      <div class="card" id="schedCard"></div>
+    </div>
+    <div class="group">
+      <h2>WALT 提频</h2>
+      <div class="card" id="waltCard"></div>
+    </div>
+  </section>
+
+  <section id="pSys">
+    <div class="group">
+      <h2>系统</h2>
+      <div class="card" id="sysCard"></div>
+    </div>
+    <div class="group">
+      <h2>运行状态</h2>
+      <div class="card" id="runCard"></div>
+    </div>
+    <div class="group">
+      <h2>操作</h2>
+      <div class="card">
+        <div class="row" style="display:block;padding:12px 15px">
+          <button class="btn ghost" id="btnLog">查看模块日志</button>
+        </div>
+        <div class="row" style="display:block;padding:0 15px 12px">
+          <button class="btn ghost" id="btnRestore">还原全部出厂值</button>
+        </div>
+      </div>
+      <pre class="pre" id="logBox" hidden></pre>
+    </div>
+    <div class="note">PianoMax v1.0.0-beta · 小米平板 8 Pro（piano / SM8750P）专用。温度读数保持真实，硬件保护温区不受影响。</div>
+  </section>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+// PianoMax WebUI
+//
+// Contract with the module:
+//   MOD/webroot/control.sh snapshot          -> key=value lines, one process
+//   MOD/webroot/control.sh set <key> <value> -> ok:v | warn:clamped:v | err:why
+//   MOD/webroot/control.sh toggle            -> ok:on | ok:off
+//
+// The UI never builds a shell command out of user input. Every value goes
+// through control.sh, which whitelists the key, checks the range and reports
+// what the kernel actually accepted.
+
+// Resolve the module directory from the bridge when possible: a hardcoded
+// path breaks if the module is ever installed under a different folder, and
+// moduleInfo() is the only supported way to ask.
+var MOD = "/data/adb/modules/pianomax";
+try {
+  if (typeof ksu !== "undefined" && ksu.moduleInfo) {
+    var info = JSON.parse(ksu.moduleInfo());
+    if (info && info.moduleDir) MOD = info.moduleDir;
+  }
+} catch (e) { /* keep the default */ }
+var CTL = MOD + "/webroot/control.sh";
+var PROFILE = MOD + "/profile.sh";
+
+function ksuExec(cmd, timeoutMs) {
+  return new Promise(function (resolve) {
+    if (typeof ksu === "undefined" || !ksu.exec) {
+      resolve({ errno: -1, stdout: "", stderr: "no ksu bridge" });
+      return;
+    }
+    var cb = "__pm" + Date.now() + Math.floor(Math.random() * 1e6);
+    var done = false;
+    var timer = setTimeout(function () {
+      if (done) return;
+      done = true;
+      try { delete window[cb]; } catch (e) {}
+      resolve({ errno: -2, stdout: "", stderr: "timeout" });
+    }, timeoutMs || 8000);
+    window[cb] = function (errno, stdout, stderr) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { delete window[cb]; } catch (e) {}
+      // The bridge delivers every argument as a String.  Comparing that with
+      // 0 is false for success too, so normalise here and let callers use plain
+      // numeric comparisons.
+      resolve({ errno: Number(errno), stdout: String(stdout || ""), stderr: String(stderr || "") });
+    };
+    try {
+      ksu.exec(cmd, "{}", cb);
+    } catch (e) {
+      done = true;
+      clearTimeout(timer);
+      resolve({ errno: -3, stdout: "", stderr: String(e) });
+    }
+  });
+}
+
+// Writes are serialised: two taps in a row must not race each other.
+var chain = Promise.resolve();
+function serial(fn) {
+  var next = chain.then(fn, fn);
+  chain = next.catch(function () {});
+  return next;
+}
+
+var toastT = null;
+function toast(msg, bad) {
+  var el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = bad ? "show bad" : "show";
+  clearTimeout(toastT);
+  toastT = setTimeout(function () { el.className = ""; }, bad ? 3400 : 1600);
+  // The manager draws its own toast above the WebView, where nothing in the
+  // page can clip it.  Only failures are worth interrupting for.
+  if (bad && typeof ksu !== "undefined" && ksu.toast) {
+    try { ksu.toast(msg); } catch (e) {}
+  }
+}
+
+function el(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function fmtNum(v) {
+  var n = parseInt(v, 10);
+  if (isNaN(n)) return v == null ? "" : String(v);
+  return String(n);
+}
+
+// Steppers that are not part of the parameter table but still edit a value.
+var TRIP_ROWS = [];
+
+// ---------- parameter definitions ----------
+// key      what control.sh calls it
+// label    row title
+// sub      row subtitle
+// step     one tap
+// min/max  bounds, mirrored from control.sh so the buttons stop early
+// live     which snapshot key reads it back
+// kind     num | sel | sw
+var PERF_PARAMS = [
+  { key: "cpu_max0", label: "小核上限", sub: "cpu0-5", step: 67200, min: 556800, max: 3532800, live: "max0", kind: "num" },
+  { key: "cpu_max6", label: "大核上限", sub: "cpu6-7", step: 67200, min: 1017600, max: 4320000, live: "max6", kind: "num" },
+  { key: "gov", label: "调度器", sub: "两簇同时生效", kind: "sel", live: "gov", options: ["performance", "walt", "schedutil", "powersave"] },
+  { key: "gpu_lvl", label: "GPU 性能档位", sub: "0 = 1100 MHz，数字越大上限越低", step: 1, min: 0, max: 12, live: "gpu_lvl", kind: "num" },
+  { key: "gpu_idle", label: "GPU 空闲计时", sub: "越大越不容易降频", step: 1000000, min: 80, max: 10000000, live: "p_gpu_idle", kind: "num" },
+  { key: "gpu_ifpc", label: "帧压缩 IFPC", sub: "关闭可省一帧延迟", kind: "sw", live: "p_gpu_ifpc" },
+  { key: "ddr", label: "DDR 下限", sub: "prime 投票", step: 100000, min: 547000, max: 4761000, live: "p_ddr", kind: "num" },
+  { key: "llcc", label: "LLCC 下限", sub: "prime 投票", step: 50000, min: 350000, max: 1211000, live: "p_llcc", kind: "num" }
+];
+
+var MEM_PARAMS = [
+  { key: "min_free", label: "最小空闲内存", sub: "min_free_kbytes", step: 4096, min: 8192, max: 131072, live: "p_min_free", kind: "num" },
+  { key: "extfrag", label: "碎片阈值", sub: "extfrag_threshold", step: 25, min: 0, max: 1000, live: "p_extfrag", kind: "num" },
+  { key: "proact", label: "后台压缩", sub: "compaction_proactiveness", step: 5, min: 0, max: 100, live: "p_proact", kind: "num" },
+  { key: "min_ttl", label: "MGLRU 最短驻留", sub: "min_ttl_ms", step: 100, min: 0, max: 5000, live: "p_min_ttl", kind: "num" }
+];
+
+var SCHED_PARAMS = [
+  { key: "slice", label: "基础时间片", sub: "base_slice_ns", step: 250000, min: 500000, max: 10000000, live: "p_slice", kind: "num" },
+  { key: "mig", label: "迁移代价", sub: "migration_cost_ns", step: 50000, min: 50000, max: 2000000, live: "p_mig", kind: "num" },
+  { key: "uclamp_min", label: "前台最低提升", sub: "top-app uclamp.min", step: 5, min: 0, max: 100, live: "p_uclamp_min", kind: "num" },
+  { key: "bg_max", label: "后台频率上限", sub: "background uclamp.max", step: 5, min: 0, max: 100, live: "p_bg_max", kind: "num" },
+  { key: "rtdef", label: "RT 最低提升", sub: "sched_util_clamp_min_rt_default", step: 64, min: 0, max: 1024, live: "p_rtdef", kind: "num" }
+];
+
+var WALT_PARAMS = [
+  { key: "boost_ms", label: "触摸提频时长", sub: "input_boost_ms", step: 50, min: 0, max: 2000, live: "p_boost_ms", kind: "num" },
+  { key: "edboost", label: "ED 提频", sub: "sched_ed_boost", step: 5, min: 0, max: 100, live: "p_edboost", kind: "num" }
+];
+
+var SYS_PARAMS = [
+  { key: "watchdog", label: "看门狗超时", sub: "system_server 被杀阈值", step: 30000, min: 60000, max: 600000, live: "p_watchdog", kind: "num" },
+  { key: "refresh", label: "刷新率", sub: "user_refresh_rate", step: 12, min: 60, max: 144, live: "p_refresh", kind: "num" }
+];
+
+// ---------- snapshot ----------
+// One process, one round trip. The previous page ran 28 exec() calls every four
+// seconds -- a measurable tax on the very thing it exists to tune.
+var SNAP = {};
+
+function parseKV(text) {
+  var out = {};
+  text.split(/\r?\n/).forEach(function (line) {
+    var i = line.indexOf("=");
+    if (i <= 0) return;
+    out[line.slice(0, i)] = line.slice(i + 1);
+  });
+  return out;
+}
+
+function snapshot() {
+  return ksuExec("sh " + CTL + " snapshot", 12000).then(function (r) {
+    if (r.errno !== 0) {
+      return { ok: false, err: (r.stderr || "snapshot failed").split("\n")[0] };
+    }
+    return { ok: true, data: parseKV(r.stdout) };
+  });
+}
+
+// ---------- writer ----------
+function describeErr(out, stderr) {
+  var code = String(out || "").replace("err:", "");
+  var map = {
+    unknown_key: "未知参数",
+    not_a_number: "不是有效数字",
+    out_of_range: "超出允许范围",
+    write_failed: "写入被内核拒绝",
+    bad_governor: "不支持该调度器",
+    bad_value: "取值不合法",
+    missing: "缺少参数",
+    write: "写入被内核拒绝",
+    bad_value_range: "超出允许范围"
+  };
+  if (map[code]) return map[code];
+  // err:readback_<got> — the write was accepted but the read-back differs.
+  if (code.indexOf("readback_") === 0) return "写入未生效（读回 " + code.slice(9) + "）";
+  var line = (stderr || "").split("\n")[0];
+  return line || ("写入失败 " + (code || ""));
+}
+
+function setValue(key, value) {
+  return serial(function () {
+    return ksuExec("sh " + CTL + " set " + key + " " + value, 12000).then(function (r) {
+      var out = (r.stdout || "").trim();
+      if (r.errno !== 0 || out.indexOf("err:") === 0) {
+        return { ok: false, msg: describeErr(out, r.stderr) };
+      }
+      if (out.indexOf("warn:clamped:") === 0) {
+        return { ok: true, msg: "内核只接受 " + out.split(":")[2] };
+      }
+      return { ok: true, msg: "" };
+    });
+  });
+}
+
+// ---------- rows ----------
+function markRow(row, cls, text) {
+  var tag = row._tag;
+  if (!tag) return;
+  tag.hidden = false;
+  tag.className = "tag " + cls;
+  tag.textContent = text;
+  clearTimeout(tag._t);
+  tag._t = setTimeout(function () { tag.hidden = true; }, 4000);
+}
+
+function subText(row, extra) {
+  var p = row._p;
+  if (!p._sub) return;
+  p._sub.textContent = extra === undefined ? p.sub : extra;
+}
+
+function headRow(p) {
+  var row = el("div", "row");
+  var txt = el("div", "txt");
+  var t1 = el("div", "t1", p.label);
+  var tag = el("span", "tag ok", "");
+  tag.hidden = true;
+  t1.appendChild(tag);
+  txt.appendChild(t1);
+  p._sub = el("div", "t2", p.sub);
+  txt.appendChild(p._sub);
+  row.appendChild(txt);
+  row._p = p;
+  row._tag = tag;
+  return row;
+}
+
+function buildNum(p) {
+  var row = headRow(p);
+  var box = el("div", "step");
+  var minus = el("button", null, "\u2212");
+  minus.setAttribute("aria-label", p.label + " 减少");
+  var input = el("input");
+  input.type = "text";
+  input.inputMode = "numeric";
+  input.setAttribute("aria-label", p.label);
+  var plus = el("button", null, "+");
+  plus.setAttribute("aria-label", p.label + " 增加");
+  box.appendChild(minus);
+  box.appendChild(input);
+  box.appendChild(plus);
+  row.appendChild(box);
+  row._input = input;
+  row._dirty = false;
+
+  function clamp(v) {
+    if (v < p.min) return p.min;
+    if (v > p.max) return p.max;
+    return v;
+  }
+
+  function nudge(d) {
+    var cur = parseInt(String(input.value).replace(/[^0-9]/g, ""), 10);
+    if (isNaN(cur)) {
+      var live = parseInt(SNAP[p.live], 10);
+      cur = isNaN(live) ? p.min : live;
+    }
+    var next = clamp(cur + d * p.step);
+    input.value = String(next);
+    commit(row, next);
+  }
+
+  minus.addEventListener("click", function () { nudge(-1); });
+  plus.addEventListener("click", function () { nudge(1); });
+
+  input.addEventListener("focus", function () { row._dirty = true; });
+  input.addEventListener("input", function () { row._dirty = true; });
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+  });
+  input.addEventListener("blur", function () {
+    row._dirty = false;
+    var raw = parseInt(String(input.value).replace(/[^0-9]/g, ""), 10);
+    if (isNaN(raw)) { restore(row); return; }
+    var v = clamp(raw);
+    input.value = String(v);
+    commit(row, v);
+  });
+  return row;
+}
+
+function commit(row, value) {
+  var p = row._p;
+  setValue(p.key, value).then(function (res) {
+    if (!res.ok) {
+      toast(res.msg, true);
+      markRow(row, "miss", "未写入");
+      restore(row);
+      return;
+    }
+    if (res.msg) {
+      toast(res.msg, true);
+      markRow(row, "ov", "被钳制");
+    } else {
+      markRow(row, "ok", "已生效");
+    }
+    refresh(300);
+  });
+}
+
+function restore(row) {
+  var v = SNAP[row._p.live];
+  if (v !== undefined && v !== "" && row._input) row._input.value = fmtNum(v);
+}
+
+function buildSel(p) {
+  var row = headRow(p);
+  var sel = el("select");
+  sel.setAttribute("aria-label", p.label);
+  p.options.forEach(function (o) {
+    var op = el("option", null, o);
+    op.value = o;
+    sel.appendChild(op);
+  });
+  row.appendChild(sel);
+  row._sel = sel;
+  sel.addEventListener("change", function () {
+    setValue(p.key, sel.value).then(function (res) {
+      if (!res.ok) { toast(res.msg, true); markRow(row, "miss", "未写入"); return; }
+      markRow(row, "ok", "已生效");
+    });
+  });
+  return row;
+}
+
+function buildSw(p) {
+  var row = headRow(p);
+  var lab = el("label", "sw");
+  var input = el("input");
+  input.type = "checkbox";
+  input.setAttribute("aria-label", p.label);
+  lab.appendChild(input);
+  lab.appendChild(el("span", "track"));
+  lab.appendChild(el("span", "knob"));
+  row.appendChild(lab);
+  row._sw = input;
+  input.addEventListener("change", function () {
+    var v = input.checked ? 1 : 0;
+    setValue(p.key, v).then(function (res) {
+      if (!res.ok) { toast(res.msg, true); input.checked = !input.checked; return; }
+      markRow(row, "ok", "已生效");
+    });
+  });
+  return row;
+}
+
+function makeRows(list, host) {
+  var rows = [];
+  list.forEach(function (p) {
+    var row = p.kind === "sel" ? buildSel(p) : (p.kind === "sw" ? buildSw(p) : buildNum(p));
+    rows.push(row);
+    if (host) host.appendChild(row);
+  });
+  return rows;
+}
+
+// ---------- verdict: who is limiting me, and am I still safe ----------
+var VERDICTS = {
+  on:       { cls: "",     title: "正常运行", desc: "频率上限保持设定值，守护进程运行中。" },
+  hot:      { cls: "warn", title: "接近绊线", desc: "温度接近绊线，越线后将自动降档而非整体还原。" },
+  tripped:  { cls: "bad",  title: "过温还原", desc: "降档级数用尽，已全部还原，守护进程待温度回落。" },
+  off:      { cls: "",     title: "已关闭",     desc: "参数已还原为出厂值。" },
+  disabled: { cls: "bad",  title: "模块已禁用", desc: "请在 KernelSU 管理器中启用本模块。" },
+  dead:     { cls: "bad",  title: "守护未运行", desc: "守护进程不在，频率将被系统逐步压回。" },
+  nocpu:    { cls: "warn", title: "上限未生效", desc: "实际上限低于设定值，正在被系统调整。" }
+};
+
+function setVerdict(key, override) {
+  var box = document.getElementById("verdict");
+  var v = VERDICTS[key] || VERDICTS.on;
+  box.className = "verdict" + (v.cls ? " " + v.cls : "");
+  document.getElementById("vTitle").textContent = v.title;
+  document.getElementById("vDesc").textContent = override || v.desc;
+  // The action chip only makes sense when there is something to do.
+  var act = document.getElementById("vAct");
+  var fixable = key === "dead" || key === "nocpu" || key === "tripped";
+  act.hidden = !fixable;
+  // "tripped" means the guard handed everything back and is cooling down;
+  // an apply there gets clamped back by mi_thermald within seconds, so the
+  // chip offers the real exit (restore + switch off) instead.
+  act.textContent = key === "dead" ? "重启守护"
+    : (key === "nocpu" ? "重新应用" : "还原并关闭");
+}
+
+// ---------- render ----------
+function render(d) {
+  SNAP = d;
+  if (!window._presetsPulled) { window._presetsPulled = true; refreshProfiles(); }
+  buildProfiles();
+  markProfile({ "省电":"省电", "均衡":"均衡", "性能":"性能", "极限":"极限" }[d.profile] || "极限");
+
+  document.getElementById("ver").textContent = d.version || "";
+  var up = d.state === "on";
+  document.getElementById("swMaster").checked = up;
+
+  // live tiles
+  var c0 = parseInt(d.cur0, 10), c6 = parseInt(d.cur6, 10);
+  document.getElementById("kCpu").textContent =
+    (isNaN(c0) ? "-" : (c0 / 1000000).toFixed(2)) + "/" + (isNaN(c6) ? "-" : (c6 / 1000000).toFixed(2));
+  document.getElementById("kGpu").textContent = (d.gpu || "-") + "M";
+  // The tile shows silicon junction -- the number that decides whether the
+  // module is being kind to the chip.  The chassis number lives on the
+  // thermal tab next to its own threshold.
+  var th = parseInt(d.t_hot, 10);
+  var tempEl = document.getElementById("kTemp");
+  tempEl.textContent = isNaN(th) ? "-" : th + "\u00b0";
+  var tTile = document.getElementById("tTile");
+  tTile.className = "tile" + (th >= 100 ? " bad" : (th >= 90 ? " hot" : ""));
+  var av = parseInt(d.memavail, 10);
+  document.getElementById("kMem").textContent = isNaN(av) ? "-" : (av / 1048576).toFixed(1) + "G";
+
+  // verdict
+  var tripC = parseInt(d.trip_c, 10) || 105;
+  var tripS = parseInt(d.trip_s, 10) || 60;
+  var ts = parseInt(d.t_skin, 10);
+  if (d.state === "disabled") setVerdict("disabled");
+  else if (d.state === "off") setVerdict("off");
+  // hold = on|hot|cool|tripped <which>; the guard writes it into .state.
+  else if (String(d.hold || "").indexOf("tripped") === 0) setVerdict("tripped");
+  else if (String(d.hold || "").indexOf("backoff") === 0)
+    setVerdict("hot", "已降档运行（" + String(d.hold).split(" ")[1] + "），温度回落会自动升回。");
+  else if (!isNaN(th) && th >= tripC - 8) setVerdict("hot", "芯片 " + th + " °C，绊线 " + tripC + " °C。");
+  else if (!isNaN(ts) && ts >= tripS - 4) setVerdict("hot", "机身 " + ts + " °C，绊线 " + tripS + " °C。");
+  else if (d.guard === "down") setVerdict("dead");
+  else {
+    var t0 = parseInt(d.max0, 10), t6 = parseInt(d.max6, 10);
+    var g0 = parseInt(d.p_target ? d.p_target.split(" ")[0] : "3532800", 10);
+    var g6 = parseInt(d.p_target ? d.p_target.split(" ")[1] : "4320000", 10);
+    if ((!isNaN(t0) && t0 < g0) || (!isNaN(t6) && t6 < g6)) {
+      setVerdict("nocpu", "设定 " + (g0 / 1000).toFixed(2) + " / " + (g6 / 1000).toFixed(2) +
+        " GHz，实际上限 " + (t0 / 1000).toFixed(2) + " / " + (t6 / 1000).toFixed(2) + " GHz。");
+    } else {
+      setVerdict("on");
+    }
+  }
+
+  // rows
+  ROWS.forEach(function (row) {
+    var p = row._p;
+    var raw = d[p.live];
+    if (row._input && !row._dirty && raw !== undefined && raw !== "") {
+      row._input.value = fmtNum(raw);
+    }
+    if (row._sel && raw) {
+      row._sel.value = raw;
+    }
+    if (row._sw && raw !== undefined && raw !== "") {
+      row._sw.checked = parseInt(raw, 10) === 1;
+    }
+  });
+
+  // zone switch reflects the module state, not a magic number
+  var zonesOff = parseInt(d.zone_off, 10) || 0;
+  var zonesOn = parseInt(d.zone_on, 10) || 0;
+  var zonesTotal = zonesOff + zonesOn;
+  var zonesDisabled = zonesOff > zonesOn;
+  document.getElementById("swZones").checked = zonesDisabled;
+  document.getElementById("zoneSub").textContent =
+    "已停用 " + zonesOff + " / " + zonesTotal + " 个温区";
+  document.getElementById("zoneNote").textContent = zonesDisabled
+    ? "计算温区已停用，内核不再因这些读数降频。电池、充电、BCL 电流与 PMIC 结温仍全部保留。"
+    : "计算温区已恢复，系统按自身曲线降频。";
+
+  // trip steppers follow the snapshot unless the user is editing them
+  TRIP_ROWS.forEach(function (row) { if (row._redraw) row._redraw(); });
+
+  // temperatures
+  document.getElementById("tmaxVal").textContent = isNaN(th) ? "-" : th + " \u00b0C";
+  document.getElementById("tmaxSub").textContent =
+    "芯片最高 · 机身 " + (isNaN(ts) ? "-" : ts) + "\u00b0 · 电池 " + (d.t_batt || "-") + "\u00b0";
+
+  var tc = document.getElementById("tempCard");
+  if (tc) {
+    tc.textContent = "";
+    [
+      ["芯片最高", d.t_hot, "\u00b0C"],
+      ["机身最高", d.t_skin, "\u00b0C"],
+      ["电池", d.t_batt, "\u00b0C"],
+      ["芯片绊线", tripC, "\u00b0C"],
+      ["机身绊线", tripS, "\u00b0C"]
+    ].forEach(function (r) {
+      var row = el("div", "row");
+      var txt = el("div", "txt");
+      txt.appendChild(el("div", "t1", r[0]));
+      row.appendChild(txt);
+      row.appendChild(el("div", "val", (r[1] === undefined ? "-" : r[1]) + " " + r[2]));
+      tc.appendChild(row);
+    });
+  }
+
+  // memory live
+  var ml = document.getElementById("memLive");
+  if (ml) {
+    ml.textContent = "";
+    [
+      ["空闲", d.memfree ? Math.round(d.memfree / 1024) + " MB" : "-"],
+      ["可用", av ? Math.round(av / 1024) + " MB" : "-"],
+      ["CMA 空闲", d.cmafree ? Math.round(d.cmafree / 1024) + " MB" : "-"]
+    ].forEach(function (r) {
+      var row = el("div", "row");
+      var txt = el("div", "txt");
+      txt.appendChild(el("div", "t1", r[0]));
+      row.appendChild(txt);
+      row.appendChild(el("div", "val", r[1]));
+      ml.appendChild(row);
+    });
+  }
+
+  // runtime card
+  var rc = document.getElementById("runCard");
+  if (rc) {
+    rc.textContent = "";
+    [
+      ["状态", d.state === "on" ? "已开启" : (d.state === "off" ? "已关闭" : "被禁用")],
+      ["守护进程", d.guard === "down" ? "已停止" : "运行中 (pid " + d.guard + ")"],
+      ["mi_thermald", d.thermald === "running" ? "运行中" : "已停止"],
+      ["调度器", d.gov || "-"],
+      ["温区", (zonesOff + " / " + zonesTotal) + " 已停用"],
+      ["GPU 热限档", d.tp === undefined ? "-" : ("thermal_pwrlevel = " + d.tp)],
+      ["GPU 硬顶", d.gpu_hw ? (parseInt(d.gpu_hw, 10) / 1000000) + " MHz" : "-"]
+    ].forEach(function (r) {
+      var row = el("div", "row");
+      var txt = el("div", "txt");
+      txt.appendChild(el("div", "t1", r[0]));
+      row.appendChild(txt);
+      row.appendChild(el("div", "val", r[1]));
+      rc.appendChild(row);
+    });
+  }
+}
+
+// ---------- refresh loop ----------
+var refreshing = false;
+var refreshT = null;
+var tickMs = 3000;
+
+function refresh(delay) {
+  clearTimeout(refreshT);
+  refreshT = setTimeout(doRefresh, delay || 0);
+}
+
+function doRefresh() {
+  if (refreshing) { refresh(tickMs); return; }
+  if (document.hidden) { refresh(tickMs); return; }
+  refreshing = true;
+  snapshot().then(function (r) {
+    refreshing = false;
+    if (!r.ok) {
+      setVerdict("dead", r.err || "读取状态失败");
+      refresh(6000);
+      return;
+    }
+    try { render(r.data); } catch (e) { /* never let a render error stop the loop */ }
+    refresh(tickMs);
+  });
+}
+
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden) refresh(0);
+});
+
+// ---------- theme ----------
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  try { localStorage.setItem("pianoMaxTheme", t); } catch (e) {}
+  var btn = document.getElementById("themeBtn");
+  btn.textContent = t === "dark" ? "\u263e" : "\u2600";
+  btn.setAttribute("aria-label", t === "dark" ? "切换到浅色" : "切换到深色");
+}
+
+function systemTheme() {
+  try {
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
+  } catch (e) {}
+  return "light";
+}
+
+function initialTheme() {
+  var saved = null;
+  try { saved = localStorage.getItem("pianoMaxTheme"); } catch (e) {}
+  if (saved === "dark" || saved === "light") return saved;
+  return systemTheme();
+}
+
+document.getElementById("themeBtn").addEventListener("click", function () {
+  var cur = document.documentElement.getAttribute("data-theme");
+  applyTheme(cur === "dark" ? "light" : "dark");
+});
+
+// Follow the system while the user has not picked a theme explicitly.
+try {
+  var mq = window.matchMedia("(prefers-color-scheme: dark)");
+  if (mq && mq.addEventListener) {
+    mq.addEventListener("change", function () {
+      var saved = null;
+      try { saved = localStorage.getItem("pianoMaxTheme"); } catch (e) {}
+      if (saved !== "dark" && saved !== "light") applyTheme(systemTheme());
+    });
+  }
+} catch (e) {}
+
+// ---------- presets ----------
+// Four bundles.  Each one writes the same files the sliders write, so a
+// preset and a manual edit never disagree about what is in force.
+var PROFILES = [
+  { k: "powersave",   n: "省电", d: "1.56G · 1353" },
+  { k: "balanced",    n: "均衡", d: "2.40G · 3187" },
+  { k: "performance", n: "性能", d: "3.07G · 4224" },
+  { k: "extreme",     n: "极限", d: "3.53G · 4761" }
+];
+
+// Pull the preset table from the module and rewrite the labels.  The
+// built-in PROFILES stay as the fallback: an older control.sh that has no
+// presets command, or a failed exec, must not blank the buttons.
+function refreshProfiles() {
+  try {
+    var out = exec("presets");
+    if (!out || out.indexOf("|") < 0) return;
+    var rows = out.trim().split(/\r?\n/);
+    rows.forEach(function (line) {
+      var p = line.split("|");
+      if (p.length < 6) return;
+      var t = PROFILES.find(function (x) { return x.k === p[0]; });
+      if (!t) return;
+      if (p[1]) t.n = p[1];
+      // Same shape the built-in rows use: two decimals of GHz, integer MHz.
+      var ghz = (Number(p[2]) / 1000000).toFixed(2);
+      var mhz = Math.round(Number(p[5]) / 1000000).toString();
+      t.d = ghz + "G · " + mhz;
+    });
+  } catch (e) {}
+}
+
+var profBusy = false;
+function buildProfiles() {
+  var row = document.getElementById("profRow");
+  if (!row || row._built) return;
+  row._built = true;
+  PROFILES.forEach(function (p) {
+    var b = document.createElement("button");
+    b.setAttribute("data-k", p.k);
+    b.innerHTML = '<span class="n"></span><span class="d"></span>';
+    b.querySelector(".n").textContent = p.n;
+    b.querySelector(".d").textContent = p.d;
+    b.addEventListener("click", function () { pickProfile(p.k, p.n, b); });
+    row.appendChild(b);
+  });
+}
+
+function markProfile(name) {
+  var row = document.getElementById("profRow");
+  if (!row) return;
+  Array.prototype.forEach.call(row.children, function (b) {
+    var on = b.querySelector(".n").textContent === name;
+    b.className = on ? "on" : "";
+  });
+}
+
+function pickProfile(key, label, btn) {
+  if (profBusy) return;
+  profBusy = true;
+  var all = document.querySelectorAll("#profRow button");
+  Array.prototype.forEach.call(all, function (b) { b.disabled = true; });
+  toast("正在切换到" + label + "…", false);
+  ksuExec("sh " + PROFILE + " " + key, 30000).then(function (r) {
+    profBusy = false;
+    Array.prototype.forEach.call(all, function (b) { b.disabled = false; });
+    var out = String(r.stdout || "").trim();
+    if (r.errno !== 0 || out.indexOf("ok:") !== 0) {
+      toast((out || r.stderr || "切换失败").slice(0, 60), true);
+      refresh(300);
+      return;
+    }
+    toast("已切换到" + label, false);
+    markProfile(label);
+    refresh(500);
+  });
+}
+
+// ---------- verdict action ----------
+// Tapping the chip runs the same "turn everything on" path as the master
+// switch, which is what re-asserts a stopped guard or an unapplied ceiling.
+document.getElementById("vAct").addEventListener("click", function () {
+  var act = document.getElementById("vAct");
+  if (act._busy) return;
+  act._busy = true;
+  act.textContent = "处理中";
+  // Not "toggle": on a running module that switches everything off.  The chip
+  // exists to re-assert what should already be true -- except in the tripped
+  // state, where the honest action is the restore-and-off path below.
+  var cmd = (SNAP && String(SNAP.hold || "").indexOf("tripped") === 0)
+    ? "sh " + CTL + " restore"
+    : "sh " + CTL + " apply";
+  ksuExec(cmd, 25000).then(function (r) {
+    var out = (r.stdout || "").trim();
+    act._busy = false;
+    if (r.errno !== 0 || (out.indexOf("ok:") !== 0 && out.indexOf("restore done") === -1)) {
+      toast(describeErr(out, r.stderr), true);
+    } else {
+      toast(cmd.indexOf("restore") !== -1 ? "已还原并关闭，可随时重新开启" : "已重新应用全部参数", false);
+    }
+    refresh(500);
+  });
+});
+
+// ---------- master switch ----------
+var masterBusy = false;
+document.getElementById("swMaster").addEventListener("change", function (e) {
+  if (masterBusy) { e.target.checked = !e.target.checked; return; }
+  var bw = e.target;
+  var want = bw.checked;
+  masterBusy = true;
+  bw.disabled = true;
+  document.getElementById("swDesc").textContent = want ? "正在应用…" : "正在还原…";
+  toast(want ? "正在应用全部参数…" : "正在还原出厂值…", false);
+  ksuExec("sh " + CTL + " toggle", 25000).then(function (r) {
+    var out = (r.stdout || "").trim();
+    var ok = r.errno === 0 && out.indexOf("ok:") === 0;
+    masterBusy = false;
+    bw.disabled = false;
+    if (!ok) {
+      toast(describeErr(out, r.stderr), true);
+      bw.checked = !want;
+      document.getElementById("swDesc").textContent = "应用到设备，或还原出厂值";
+      return;
+    }
+    document.getElementById("swDesc").textContent = want ? "已应用到设备" : "已还原出厂值";
+    toast(want ? "已开启" : "已关闭，参数已还原为出厂值", false);
+    refresh(600);
+  });
+});
+
+// ---------- zone switch ----------
+document.getElementById("swZones").addEventListener("change", function (e) {
+  var on = e.target.checked;
+  e.target.disabled = true;
+  setValue("zones", on ? "on" : "off").then(function (res) {
+    e.target.disabled = false;
+    if (!res.ok) { toast(res.msg, true); e.target.checked = !on; return; }
+    toast(on ? "软温控已由本模块接管" : "软温控已交还系统", false);
+    refresh(900);
+  });
+});
+
+// ---------- trip steppers ----------
+// Two independent thresholds: silicon junction and chassis surface.  Each is a
+// stepper in the markup with a data-k naming which one it edits.
+[
+  { k: "trip",      live: "trip_c", min: 85, max: 110, def: 105, label: "芯片绊线" },
+  { k: "trip_skin", live: "trip_s", min: 45, max: 75,  def: 60,  label: "机身绊线" }
+].forEach(function (cfg) {
+  var row = document.querySelector('[data-k="' + cfg.k + '"]');
+  if (!row) return;
+  var input = row.querySelector("input");
+  var btns = row.querySelectorAll("button");
+
+  function clamp(v) { return v < cfg.min ? cfg.min : (v > cfg.max ? cfg.max : v); }
+
+  function push(v) {
+    input.value = String(v);
+    setValue(cfg.k, v * 1000).then(function (res) {
+      if (!res.ok) { toast(res.msg, true); redraw(); return; }
+      toast(cfg.label + "已设为 " + v + " °C", false);
+      refresh(400);
+    });
+  }
+
+  function redraw() {
+    var t = parseInt(SNAP[cfg.live], 10);
+    if (!isNaN(t) && document.activeElement !== input) input.value = t;
+  }
+
+  btns.forEach(function (b) {
+    b.addEventListener("click", function () {
+      var d = parseInt(b.getAttribute("data-d"), 10);
+      var cur = parseInt(String(input.value).replace(/[^0-9]/g, ""), 10);
+      if (isNaN(cur)) cur = cfg.def;
+      push(clamp(cur + d));
+    });
+  });
+
+  input.addEventListener("focus", function () { row._dirty = true; });
+  input.addEventListener("blur", function () {
+    row._dirty = false;
+    var v = parseInt(String(input.value).replace(/[^0-9]/g, ""), 10);
+    if (isNaN(v)) { redraw(); return; }
+    push(clamp(v));
+  });
+
+  row._redraw = redraw;
+  TRIP_ROWS.push(row);
+});
+
+// ---------- actions ----------
+document.getElementById("btnLog").addEventListener("click", function () {
+  var box = document.getElementById("logBox");
+  if (!box.hidden) { box.hidden = true; return; }
+  ksuExec("tail -n 40 " + MOD + "/pianomax.log 2>/dev/null", 8000).then(function (r) {
+    box.textContent = (r.stdout || "").trim() || "(日志为空)";
+    box.hidden = false;
+  });
+});
+
+document.getElementById("btnRestore").addEventListener("click", function () {
+  if (!confirm("将全部参数还原为出厂值？模块将切换到关闭状态。")) return;
+  ksuExec("sh " + CTL + " restore", 20000).then(function (r) {
+    if (r.errno !== 0) {
+      toast((r.stderr || "还原失败").slice(0, 60), true);
+    } else {
+      toast("已还原出厂值", false);
+    }
+    refresh(900);
+  });
+});
+
+// ---------- tabs ----------
+document.querySelectorAll("nav button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll("nav button").forEach(function (x) {
+      x.setAttribute("aria-selected", "false");
+      x.classList.remove("on");
+    });
+    document.querySelectorAll("section").forEach(function (x) { x.classList.remove("on"); });
+    b.setAttribute("aria-selected", "true");
+    b.classList.add("on");
+    var target = document.getElementById(b.getAttribute("data-p"));
+    if (target) target.classList.add("on");
+  });
+});
+
+
+// ---------- init ----------
+var ROWS = [];
+
+document.addEventListener("DOMContentLoaded", function () {
+  applyTheme(initialTheme());
+
+  var cpuRows = makeRows(PERF_PARAMS.slice(0, 3), document.getElementById("cpuCard"));
+  var gpuRows = makeRows(PERF_PARAMS.slice(3, 6), document.getElementById("gpuCard"));
+  var busRows = makeRows(PERF_PARAMS.slice(6, 8), document.getElementById("busCard"));
+  var memRows = makeRows(MEM_PARAMS, document.getElementById("memCard"));
+  var schedRows = makeRows(SCHED_PARAMS, document.getElementById("schedCard"));
+  var waltRows = makeRows(WALT_PARAMS, document.getElementById("waltCard"));
+  var sysRows = makeRows(SYS_PARAMS, document.getElementById("sysCard"));
+
+  ROWS = [].concat(cpuRows, gpuRows, busRows, memRows, schedRows, waltRows, sysRows);
+
+  document.getElementById("cpuNote").textContent =
+    "CPU 上限经 cpu_limits 命令通道写入；直接写 scaling_max_freq 会在两秒内被 mi_thermald 覆盖。守护进程每秒检查并恢复被压下的值。";
+
+  refresh(0);
+});
+</script>
+</body>
+</html>
