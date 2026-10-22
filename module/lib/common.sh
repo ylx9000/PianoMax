@@ -43,11 +43,11 @@ pm_log() { echo "[$(date +%m-%d\ %H:%M:%S)] $*" >> "$PM_LOG" 2>/dev/null; }
 
 # The daemon writes a heartbeat every 30 s forever; without a cap the log
 # grows without bound.  Checked by size, truncated to the last 400 lines and
-# only when past 64 KB, so normal bursts are never cut mid-trace.
+# only when past 32 KB, so normal bursts are never cut mid-trace.
 pm_log_trim() {
     [ -f "$PM_LOG" ] || return 0
     sz=$(wc -c < "$PM_LOG" 2>/dev/null)
-    [ "${sz:-0}" -gt 65536 ] || return 0
+    [ "${sz:-0}" -gt 32768 ] || return 0
     tail -n 400 "$PM_LOG" > "$PM_LOG.tmp" 2>/dev/null && mv "$PM_LOG.tmp" "$PM_LOG"
 }
 
@@ -103,6 +103,215 @@ pm_detect_root() {
 # Numeric guard: is $1 a plain non-negative integer?
 pm_num() { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 
+# Zero-fork helpers for the guard hot loop.  Every $(cat ...) in the main
+# while-body costs a fork+exec, and measured on this box the shell forks put
+# a tick at ~1.2 s instead of the intended 1 s.  Both helpers are builtins
+# only.
+#
+# pm_get VAR PATH: read one single-line sysfs/procfs value without a
+# subshell.  mksh read stops at NUL and newline, which is exactly one sysfs
+# integer, so the variable ends up identical to pm_cat output for every
+# single-line node this module reads.  Multi-line nodes must not use it.
+pm_get() {
+    IFS= read -r "$1" < "$2" 2>/dev/null
+}
+
+# pm_cmdline_is PID PATTERN: does the process cmdline contain PATTERN?
+# Runs one tr and one grep; kept as a helper so callers do not re-derive
+# the NUL handling.  Full-tree scans keep their own loops.
+# --- zone classification (single source) ------------------------------------
+# The skin-zone numbers and the protected type patterns used to be hardcoded
+# in four places (apply.sh, status.sh, guard.sh, piano_diag.sh); every drift
+# between them was a latent bug.  They live here now.  The type map is
+# cached once per boot in .tz_types (zoneN type per line) so callers stop
+# paying a fork per zone per pass just to classify.
+PM_SKIN_ZONES=" 57 58 59 60 63 64 65 66 67 68 "
+# The two clusters the WebUI reports separately ("chip junction" and "GPU").
+# Both are subsets of PM_SILICON_ZONES; they exist so the page can print a
+# cluster reading rather than the whole-family maximum, which is usually a
+# PMIC junction and 30 C hotter than the silicon.
+PM_CPU_ZONES=" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 "
+PM_GPU_ZONES=" 23 24 25 26 27 28 29 30 "
+# The core spoof set behind the "normal" tier: CPU clusters plus GPU only.
+# These are the zones that actually heat up under game and benchmark load, and
+# the ones a kernel governor reacts to first.  Everything else -- DSP, modem,
+# camera, video, DDR, SoC-digital -- is left real on purpose: emulating those
+# buys little (they move slowly) and costs the tripwire its last independent
+# readings, so leaving them alone is what makes "normal is safer than max" a
+# fact rather than a slogan.
+PM_SPOOF_CORE_ZONES=" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 \
+16 17 18 19 20 21 23 24 25 26 27 28 29 30 "
+PM_SPOOFABLE=" "
+
+pm_build_zone_cache() {
+    # .tz_types lines: "<zone> <spoofable|-> <type>".  Classifying at build
+    # time lets the spoof counters and the freshness sentinels run a single
+    # temp-read per zone instead of type+temp forks, and the skin list lives
+    # only here and in PM_SKIN_ZONES.
+    : > "$PM_DIR/.tz_types"
+    # Numeric order, not glob order.  The glob expands as a string sort
+    # (0, 1, 10, 11, ..., 2, 20, ...), which put zone 9 last and zone 44 in the
+    # middle -- so any "first / middle / last" spot check was really reading
+    # three neighbours of the same alphabetical cluster and could not detect a
+    # stale tail.  Walking the numbers also makes the file readable by eye.
+    _bz_n=0
+    while [ "$_bz_n" -le 99 ]; do
+        _bz_dir="/sys/class/thermal/thermal_zone$_bz_n"
+        if [ -d "$_bz_dir" ]; then
+            t=""
+            IFS= read -r t < "$_bz_dir/type" 2>/dev/null
+            if pm_zone_spoofable "$_bz_n" "$t"; then cls=spoofable; else cls=-; fi
+            echo "$_bz_n $cls $t" >> "$PM_DIR/.tz_types"
+        fi
+        _bz_n=$((_bz_n + 1))
+    done
+    PM_SPOOFABLE=" "
+    PM_SPOOF_CORE=" "
+    while IFS= read -r _bz_line; do
+        case "$_bz_line" in
+            *" spoofable "*)
+                _bz_id=${_bz_line%% *}
+                PM_SPOOFABLE="$PM_SPOOFABLE$_bz_id "
+                # Second list for the normal tier: same classification, cut
+                # down to the CPU + GPU clusters.  Derived here rather than in
+                # apply.sh so the two lists can never describe different boots.
+                case "$PM_SPOOF_CORE_ZONES" in
+                    *" $_bz_id "*) PM_SPOOF_CORE="$PM_SPOOF_CORE$_bz_id " ;;
+                esac ;;
+        esac
+    done < "$PM_DIR/.tz_types"
+    echo "$PM_SPOOFABLE" > "$PM_DIR/.tz_spoofable"
+    echo "$PM_SPOOF_CORE" > "$PM_DIR/.tz_spoofable_core"
+}
+
+# Spot-check three spread-out entries rather than the first one.  A ROM that
+# renumbers zones does not have to touch zone 0, and a single-line probe made
+# the whole cache look valid off one surviving zone.  Variable names are
+# _cz_-prefixed: mksh has no function-local scope and the caller's want/zn
+# must survive this call.
+# Spot-check first / middle / last.  Reading only the first few entries
+# validated a single point: on this kernel zones 0, 15 and 22 are the same
+# "aoss-N" family, so three consecutive lines could all pass while the rest
+# of the file was stale.  Three spread-out samples cost the same and actually
+# prove the numbering still holds.
+pm_zone_cache_ok() {
+    [ -s "$PM_DIR/.tz_types" ] || return 1
+    # One pass over the file, keeping the first, the middle and the last entry
+    # without sed / cat / pipelines: this runs inside apply_temp_spoof, and on
+    # this box every fork is ~6 ms against a 1 s tick.
+    # Three probes: first, middle and last.  Reading only the first few lines
+    # validated a single point -- on this kernel zones 0, 15 and 22 are all the
+    # "aoss-N" family, so three consecutive entries could pass while the rest
+    # of the file was stale.
+    #
+    # Two short passes over a 78-line file: count first, then pick the middle
+    # by index.  A one-pass slow cursor was tried and was off by one -- it
+    # recorded the current line whenever the counter advanced, not the line at
+    # the counter's final value, so a tampered middle entry went unnoticed.
+    # Clarity beats a saved pass here; status.sh re-checks it on every emul-mode poll, so the cost is not once-per-boot.
+    _cz_n=0
+    while IFS= read -r _cz_line; do
+        [ -n "$_cz_line" ] && _cz_n=$((_cz_n + 1))
+    done < "$PM_DIR/.tz_types"
+    [ "$_cz_n" -ge 3 ] || return 1
+    _cz_pick=$(( (_cz_n + 1) / 2 ))
+    _cz_i=0
+    _cz_first=""
+    _cz_mid=""
+    _cz_last=""
+    while IFS= read -r _cz_line; do
+        [ -n "$_cz_line" ] || continue
+        _cz_i=$((_cz_i + 1))
+        [ "$_cz_i" -eq 1 ] && _cz_first="$_cz_line"
+        [ "$_cz_i" -eq "$_cz_pick" ] && _cz_mid="$_cz_line"
+        _cz_last="$_cz_line"
+    done < "$PM_DIR/.tz_types"
+    # Verify EVERY entry, not the three probes above.  On 2026-10-23 this box
+    # came up with zone 56 = battery and 58 = socd, while the cache from the
+    # previous boot had them the other way round.  First/middle/last all
+    # matched, the cache was declared valid, and 56 -- now the battery -- ended
+    # up in the spoofable set, so the top tier would have pinned the cell's
+    # sensor at 25 C and blinded its own over-temperature protection.  A ROM
+    # that renumbers zones can move exactly one middle entry.
+    # 78 builtin reads are ~15 ms; status.sh runs this on every emul-mode poll, so the check is not free.
+    while IFS= read -r _cz_line; do
+        [ -n "$_cz_line" ] || continue
+        _cz_id=${_cz_line%% *}
+        _cz_rest=${_cz_line#* }
+        _cz_ty=${_cz_rest#* }
+        [ -n "$_cz_id" ] || return 1
+        _cz_now=""
+        IFS= read -r _cz_now < "/sys/class/thermal/thermal_zone$_cz_id/type" 2>/dev/null || return 1
+        [ "$_cz_now" = "$_cz_ty" ] || return 1
+    done < "$PM_DIR/.tz_types"
+    return 0
+}
+
+# Is this zone spoofable?  $1 = zone number, $2 = type.  Two exclusions:
+# the skin family by number, and the hardware-protection types by name --
+# battery/charger/BCL/PMIC and the synthetic-skin inputs must read true
+# temperature no matter what any switch says.
+pm_zone_spoofable() {
+    case "$PM_SKIN_ZONES" in
+        *" $1 "*) return 1 ;;
+    esac
+    case "$2" in
+        *bcl*|*batt*|*battery*|*charger*|*usb*|*ibat*|*vbat*|*wireless*|pm8550*|pmih010x*|quiet_therm|backlight_therm|conn_therm*|flash_therm|wifi_therm|display_therm|ambient*)
+            return 1 ;;
+    esac
+    return 0
+}
+
+pm_cmdline_is() {
+    tr '\000' ' ' < "/proc/$1/cmdline" 2>/dev/null | grep -q "$2"
+}
+
+# Rebuild the working state files from the preset the UI still shows.
+#
+# restore.sh removes .target as part of its factory cleanup, and both
+# pm_base0 and pm_base6 fall back to the extreme preset's values when it is
+# gone.  So "restore, then apply" used to come back at 3532800/4320000 no
+# matter which preset the label said: turn the module off on 省电, turn it
+# back on, and the UI reported 1555200 while the box ran the full ceiling.
+# The guard only rebuilt these files on its re-arm path, which needs a trip
+# first -- an ordinary off/on cycle never reached it.
+#
+# One definition, called from tune.sh apply and from the guard's re-arm, so
+# the two paths cannot drift.
+pm_state_rebuild() {
+    [ -f "$PM_TARGET" ] && return 0
+    _rb=""
+    IFS= read -r _rb < "$PM_PROFILE" 2>/dev/null
+    case "$_rb" in
+        省电) _rbk=powersave ;;
+        均衡) _rbk=balanced ;;
+        性能) _rbk=performance ;;
+        *)    _rbk=extreme ;;
+    esac
+    _rbl=""
+    [ -s "$PM_DIR/presets.txt" ] &&         _rbl=$(grep "^$_rbk	" "$PM_DIR/presets.txt" 2>/dev/null | head -n 1)
+    if [ -z "$_rbl" ]; then
+        case "$_rbk" in
+            powersave)   _rbl="powersave	省电	1555200	1958400	10	1353000	533000	90000	50000	kernel" ;;
+            balanced)    _rbl="balanced	均衡	2400000	2841600	6	3187000	933000	100000	55000	module" ;;
+            performance) _rbl="performance	性能	3072000	3513600	4	4224000	1066000	105000	62000	module" ;;
+            *)           _rbl="extreme	极限	3532800	4320000	0	4761000	1211000	105000	75000	module" ;;
+        esac
+    fi
+    # Columns after cut -f2-10: name c0 c6 gpu ddr llcc tc ts zones
+    set -- $(echo "$_rbl" | cut -f2-10)
+    echo "$2 $3" > "$PM_TARGET"
+    echo "$7 $8" > "$PM_TRIP"
+    echo "$4" > "$PM_GPU"
+    echo "$5 $6" > "$PM_BUS"
+    echo "$9" > "$PM_ZONES"
+    # restore.sh wipes the governor preference with the rest of the state;
+    # dropping a stale .gov here keeps a rebuilt state from carrying one.
+    rm -f "$PM_DIR/.gov"
+    pm_log "state rebuilt from preset $_rbk"
+    return 0
+}
+
 # Highest temperature among the sensors the module never disables.
 # Returns millidegrees.  Falls back to 0 so callers must range-check.
 #
@@ -112,45 +321,91 @@ pm_num() { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 # 32-48 C while the CPU junction idles near 85 C under load, so one number
 # either never fires (PMIC peaks around 57 C) or fires constantly.
 
-# Silicon: CPU clusters, GPU, and the PMIC junctions that feed them.  These
-# are the parts that get damaged.  Sustained full load sits in the high 80s,
-# and thermal shutdown is around 110 C.
+# Silicon: every zone the module turns the governor off for.  These are the
+# only sensors that still mean anything once disable_compute_zones has run,
+# so the list has to match that function's coverage exactly.
+#
+# It did not.  The original list held only the CPU clusters, the GPU and the
+# PMIC junctions, while disable_compute_zones disables many more.  What fell
+# through included ddr, camera-0/1, video, cpu_therm, socd and the DSP zones
+# (aoss / mdmss / nsphvx / nsphmx): the kernel governor was silenced on all of
+# them and no tripwire ever read them.  A DDR or camera thermal excursion
+# could run to the hardware's own critical trip with this module reporting a
+# cool chip the whole way.
+#
+# No counts are written here on purpose.  The gap was 21 when it was found and
+# will change with any ROM that adds or removes a sensor; piano_diag.sh
+# derives the number at runtime and reports the difference instead.
+#
+# The group is defined once, here, and disable_compute_zones derives its
+# protected set from the same two variables -- a second hardcoded list is
+# how the gap appeared in the first place.
+PM_SILICON_ZONES=" 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 \
+22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 \
+56 62 69 70 71 72 73 74 75 76 "
+# Sets PM_REAL alongside the maximum: how many of the inputs returned a usable
+# reading that is NOT the spoofed 25000.  That is the count of sensors still
+# telling the truth, which is what the guard's "all sensors dead" backstop has
+# to watch.  A plain non-zero count cannot do it -- with the emul layer on, 49
+# of the 57 inputs are pinned at 25000, so a total PMIC outage still yields a
+# healthy-looking peak and the backstop would never fire exactly when it is
+# needed most.
+# The result goes into PM_TMAX, not stdout.  Callers used to write
+# TC=$(pm_temp_compute) so the maximum could be captured, but a command
+# substitution runs in a subshell: PM_REAL was incremented there and thrown
+# away, leaving the guard's dead-sensor backstop reading a permanent zero and
+# firing on every tick.  Setting a global and echoing the value as well would
+# still lose the count on the $(...) path, so the function only sets globals
+# and callers read PM_TMAX.
+PM_REAL=0
+PM_TMAX=0
 pm_temp_compute() {
-    t=0
-    for z in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 16 17 18 19 20 21 \
-             23 24 25 26 27 28 29 30 \
-             69 70 71 72 73 74 75 76; do
-        v=$(cat /sys/class/thermal/thermal_zone$z/temp 2>/dev/null)
+    PM_TMAX=0
+    PM_REAL=0
+    for z in $PM_SILICON_ZONES; do
+        IFS= read -r v < "/sys/class/thermal/thermal_zone$z/temp" 2>/dev/null || continue
         pm_num "$v" || continue
-        [ "$v" -gt "$t" ] && t=$v
+        case "$v" in
+            0|25000) ;;
+            *) PM_REAL=$((PM_REAL + 1)) ;;
+        esac
+        [ "$v" -gt "$PM_TMAX" ] && PM_TMAX=$v
     done
-    echo $t
+    return 0
 }
 
-# Rotating variant: reads one quarter of the silicon family per call (chosen
-# by position, so each sweep sees a fixed set), covering all 36 zones over
-# four calls -- 9 reads a tick instead of 36.  Silicon time constants are far
-# above the four-second sweep, so the tripwire loses nothing.  The full sweep
-# still runs at every suspected trip so the back-off decision sees the true
-# maximum.
+# Rotating variant: reads one quarter of the silicon family per call, chosen
+# by position so each sweep sees a fixed set.  The family is the 57 zones the
+# module disables, so a full pass takes four ticks -- 14 or 15 reads each
+# instead of 57.  Silicon time constants are far above the four-second sweep,
+# so the tripwire loses nothing; the full sweep still runs at every suspected
+# trip so the back-off decision sees the true maximum.  Reads go through the
+# builtin (measured 0.2 ms against 3.2 ms for a cat fork); at this width the
+# difference is what keeps the tick near its nominal one second.
 PM_ROT=0
+# The rotating sweep cannot produce a trustworthy PM_REAL -- it only sees a
+# quarter of the family per call -- so it leaves the last full-sweep value in
+# place rather than overwriting it with a number a quarter too small.
+# Sets PM_TROT and advances the rotation cursor.  No stdout, same reason as
+# pm_temp_compute: PM_ROT has to survive the call, and it cannot do that from
+# inside a command substitution.
+PM_TROT=0
 pm_temp_compute_rot() {
-    t=0
+    PM_TROT=0
     i=0
-    for z in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 16 17 18 19 20 21 \
-             23 24 25 26 27 28 29 30 \
-             69 70 71 72 73 74 75 76; do
+    for z in $PM_SILICON_ZONES; do
         case $((i % 4)) in
             $PM_ROT) ;;
             *) i=$((i + 1)); continue ;;
         esac
         i=$((i + 1))
-        v=$(cat /sys/class/thermal/thermal_zone$z/temp 2>/dev/null)
+        v=""
+        IFS= read -r v < "/sys/class/thermal/thermal_zone$z/temp" 2>/dev/null || continue
         pm_num "$v" || continue
-        [ "$v" -gt "$t" ] && t=$v
+        [ "$v" -gt "$PM_TROT" ] && PM_TROT=$v
     done
     PM_ROT=$(( (PM_ROT + 1) % 4 ))
-    echo $t
+    return 0
 }
 
 # Skin and battery: the sensors that track what the chassis and the cell are
@@ -158,8 +413,9 @@ pm_temp_compute_rot() {
 # temperature; the rest are the panel, connectivity and charging paths.
 pm_temp_skin() {
     t=0
-    for z in 57 58 59 60 63 64 65 66 67 68; do
-        v=$(cat /sys/class/thermal/thermal_zone$z/temp 2>/dev/null)
+    for z in $PM_SKIN_ZONES; do
+        v=""
+        IFS= read -r v < "/sys/class/thermal/thermal_zone$z/temp" 2>/dev/null || continue
         pm_num "$v" || continue
         [ "$v" -gt "$t" ] && t=$v
     done
@@ -171,14 +427,23 @@ pm_temp_skin() {
 # defaults where the chassis is genuinely hot rather than merely warm: 60 C is
 # uncomfortable to hold and safe for the cell, 52 C tripped on every mouse
 # movement.
-pm_trip_compute() {
-    v=$(cat "$PM_TRIP" 2>/dev/null | cut -d' ' -f1)
-    pm_num "$v" && echo "$v" || echo 105000
+# Both read the same file: one fork instead of four per tick, since the guard
+# asks for both thresholds on every pass and a cut pipeline per field is pure
+# waste at 1 Hz forever.
+pm_trip_pair() {
+    a=105000; b=60000
+    v=""
+    IFS= read -r v < "$PM_TRIP" 2>/dev/null || v=""
+    if [ -n "$v" ]; then
+        x=${v%% *}
+        y=${v#* }
+        pm_num "$x" && a=$x
+        [ "$y" != "$v" ] && pm_num "$y" && b=$y
+    fi
+    echo "$a $b"
 }
-pm_trip_skin() {
-    v=$(cat "$PM_TRIP" 2>/dev/null | cut -d' ' -f2)
-    pm_num "$v" && echo "$v" || echo 60000
-}
+pm_trip_compute() { set -- $(pm_trip_pair); echo "$1"; }
+pm_trip_skin()    { set -- $(pm_trip_pair); echo "$2"; }
 
 # Four presets write these four files; the module reads them here so the
 # presets and the individual sliders share one source of truth.  Every default
@@ -192,23 +457,52 @@ pm_bus_llcc()  { v=$(pm_cat "$PM_BUS" | cut -d' ' -f2); pm_num "$v" && echo "$v"
 # compute zones ourselves.  The powersave preset keeps the kernel, because at
 # low clocks there is nothing to gain from fighting it.
 pm_zones_kernel() {
-    v=$(pm_cat "$PM_ZONES")
+    v=""
+    IFS= read -r v < "$PM_ZONES" 2>/dev/null
     [ "$v" = "kernel" ] && echo yes || echo no
 }
-pm_profile_name() { v=$(pm_cat "$PM_PROFILE"); [ -n "$v" ] && echo "$v" || echo 极限; }
+pm_profile_name() {
+    v=""
+    IFS= read -r v < "$PM_PROFILE" 2>/dev/null
+    [ -n "$v" ] && echo "$v" || echo 极限
+}
 
 # Nearest entry on a cpufreq ladder to `target * pct / 100`.  The guard needs
 # this because a stage that is not a real ladder entry gets silently rounded by
 # the kernel, and the UI would then show a number the module never asked for.
+# The ladder never changes within a boot, and the guard calls this twice per
+# tick (pm_hold0/6) plus twice more per back-off.  One cat per policy per boot
+# instead of two per second forever.  The cache file is keyed by policy so a
+# ROM update that ships new rungs invalidates naturally on reboot.
+pm_ladder() {
+    _pl_dir=$1
+    _pl_key=${_pl_dir##*/}
+    _pl_cache="$PM_DIR/.ladder-$_pl_key"
+    _pl=""
+    if [ -s "$_pl_cache" ]; then
+        IFS= read -r _pl < "$_pl_cache" 2>/dev/null
+    fi
+    if [ -z "$_pl" ]; then
+        _pl=$(cat "$_pl_dir/scaling_available_frequencies" 2>/dev/null)
+        [ -n "$_pl" ] && echo "$_pl" > "$_pl_cache" 2>/dev/null
+    fi
+    echo "$_pl"
+}
+
+# Same snapping, but the rungs are pulled into a plain shell variable instead
+# of through a command substitution.  $(...) forks; the guard calls this twice
+# per tick, so the substitution alone was ~26 ms of every tick.
 pm_step_down() {
-    dir=$1; t=$2; pct=$3
-    want=$((t * pct / 100))
-    best=0; bestd=999999999
-    for f in $(cat "$dir/scaling_available_frequencies" 2>/dev/null); do
-        d=$((f > want ? f - want : want - f))
-        if [ "$d" -lt "$bestd" ]; then bestd=$d; best=$f; fi
+    _sd_dir=$1; _sd_t=$2; _sd_pct=$3
+    _sd_want=$((_sd_t * _sd_pct / 100))
+    _sd_best=0; _sd_bestd=999999999
+    _sd_rungs=$(pm_ladder "$_sd_dir")
+    set -- $_sd_rungs
+    for _sd_f in "$@"; do
+        _sd_d=$((_sd_f > _sd_want ? _sd_f - _sd_want : _sd_want - _sd_f))
+        if [ "$_sd_d" -lt "$_sd_bestd" ]; then _sd_bestd=$_sd_d; _sd_best=$_sd_f; fi
     done
-    if [ "$best" -gt 0 ]; then echo "$best"; else echo "$t"; fi
+    if [ "$_sd_best" -gt 0 ]; then echo "$_sd_best"; else echo "$_sd_t"; fi
 }
 
 # CPU ceiling the module should hold, per policy.  Two files, because they mean

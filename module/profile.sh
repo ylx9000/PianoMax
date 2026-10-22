@@ -41,7 +41,7 @@ snap_bus() {
 # name | cpu0 | cpu6 | gpu_max_pwrlevel | ddr | llcc | trip_compute | trip_skin | zones
 # Values live in presets.txt so the shell, the WebUI and the build all read
 # one table.  The case below is the built-in copy used only when that file is
-# missing from a broken install; keeping it in sync is build.mjs's job.
+# missing from a broken install; keeping it in sync is a manual step; build.mjs does not compare them.
 preset_line() {
     if [ -f "$PM_DIR/presets.txt" ]; then
         line=$(grep "^$1	" "$PM_DIR/presets.txt" 2>/dev/null | head -n 1)

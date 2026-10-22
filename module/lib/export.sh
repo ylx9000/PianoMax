@@ -23,21 +23,24 @@ if [ -z "${PM_DIR:-}" ] || [ ! -f "$PM_DIR/module.prop" ]; then
     . "$PM_DIR/lib/common.sh"
 fi
 
-PM_AWK=""
-pm_bitwise_awk() {
-    [ -n "$PM_AWK" ] && return 0
+# The gate probes the same applet pm_crc32 uses, so "zip possible" and
+# "CRC computable" can never disagree.  An earlier version probed bitwise
+# awk here while pm_crc32 only needed the crc32 applet: on a box with awk
+# but no crc32 the gate passed, every member then got CRC 0, and the zip
+# only died in the self-check -- safe, but the gate was testing the wrong
+# thing and the awk path itself was dead code (nothing ever called it).
+pm_crc32_available() {
     for a in /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox busybox; do
-        if "$a" awk 'BEGIN{exit xor(1,3)==2?0:1}' 2>/dev/null; then PM_AWK="$a"; return 0; fi
+        if "$a" crc32 /data/adb/modules/pianomax/module.prop >/dev/null 2>&1; then return 0; fi
     done
-    if awk 'BEGIN{exit xor(1,3)==2?0:1}' 2>/dev/null; then PM_AWK=awk; return 0; fi
+    if busybox crc32 /data/adb/modules/pianomax/module.prop >/dev/null 2>&1; then return 0; fi
     return 1
 }
 
 # CRC-32 over the file named by $1.  The manager bundled busybox ships a
 # crc32 applet whose output is the zip polynomial (reflected IEEE 0xEDB88320,
 # hex, no padding quirks); both busybox builds on this device returned
-# byte-identical values to a reference implementation.  The awk fallback
-# exists for a hypothetical busybox without the applet.
+# byte-identical values to a reference implementation.
 pm_crc32() {
     for a in /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox busybox; do
         if "$a" crc32 "$1" >/dev/null 2>&1; then "$a" crc32 "$1" | awk '{print $1}'; return 0; fi
@@ -79,7 +82,9 @@ pm_export_run() {
     kv="$out/$name.txt"
     {
         echo "# PianoMax configuration export"
-        echo "# values as the kernel holds them at export time"
+        echo "# the module's intent (state files + preset table), not a live"
+        echo "# kernel readback -- for what the kernel is actually enforcing"
+        echo "# right now, run status.sh full"
         echo "profile=$(pm_profile_name)"
         echo "target=$(cat "$PM_TARGET" 2>/dev/null)"
         echo "trip=$(cat "$PM_TRIP" 2>/dev/null)"
@@ -92,7 +97,7 @@ pm_export_run() {
     } > "$kv" 2>/dev/null
     echo "export: $kv"
 
-    pm_bitwise_awk || { pm_log "export: no bitwise awk, kv text only"; return 2; }
+    pm_crc32_available || { pm_log "export: no crc32 applet, kv text only"; return 2; }
     zip="$out/$name.zip"
     idx="$out/.idx"
     : > "$zip"; : > "$idx"
@@ -142,6 +147,19 @@ pm_export_run() {
         echo "export: zip container failed validation; the kv text above is the export"
         return 3
     fi
+    # Retention: every export leaves a kv + a zip, and nothing ever removed
+    # them -- the device had accumulated ten pairs before this existed.  Keep
+    # the six newest zips (their matching .txt goes with each); ls -t walks
+    # newest first so the cap is an age bound that never needs find -mtime.
+    # Failures here are cosmetic -- an old export staying one more round
+    # harms nothing -- so the sweep is silent.
+    _n=0
+    for f in $(ls -t "$out"/pianomax-config-*.zip 2>/dev/null); do
+        _n=$((_n + 1))
+        [ "$_n" -le 6 ] && continue
+        rm -f "$f" "${f%.zip}.txt" 2>/dev/null
+    done
+    unset _n
 }
 
 # Runnable standalone (export.sh run); silent when sourced as a library.

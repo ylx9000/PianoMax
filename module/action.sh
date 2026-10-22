@@ -32,13 +32,28 @@ card() {
     t1=$(pm_cat /sys/class/thermal/thermal_zone13/temp); pm_num "$t1" || t1=0
     t2=$(pm_cat /sys/class/thermal/thermal_zone23/temp); pm_num "$t2" || t2=0
     t3=$(pm_cat /sys/class/power_supply/battery/temp);   pm_num "$t3" || t3=0
-    echo "  温度  CPU $((t1 / 1000))° GPU $((t2 / 1000))° 电池 $((t3 / 10))°"
+    # The card used to print these raw, so with the emul layer up it showed
+    # "CPU 25° GPU 25°" -- a fabricated measurement on the one screen a user
+    # sees without opening the WebUI.  status.sh already has the contract for
+    # this ( spoofed clusters report "not observable" ); mirror it here.
+    # 电池 reads true on every tier -- it is in the protected family.
+    SPOOFED=$(cat "$PM_DIR/.spoof" 2>/dev/null)
+    case "$SPOOFED" in
+        on|max|normal) CV="-"; GV="-" ;;
+                *)     CV=$((t1 / 1000)); GV=$((t2 / 1000)) ;;
+    esac
+    echo "  温度  CPU ${CV}° GPU ${GV}° 电池 $((t3 / 10))°"
     av=$(grep MemAvailable /proc/meminfo 2>/dev/null | tr -s ' ' | cut -d' ' -f2)
     pm_num "$av" && echo "  内存  $((av / 1024)) MB 可用"
     echo "  守护  $(pm_guard_pid >/dev/null 2>&1 && echo 运行中 || echo 已停止)"
     echo ""
     echo " ----------------------------------------"
 }
+
+# Same gate as profile.sh: the values these scripts write are piano's
+# cpufreq ladder, and a foreign device would take them literally -- the
+# install-time check cannot cover a manual su call from another machine.
+[ "$(getprop ro.product.device)" = "piano" ] || { echo "unsupported device: $(getprop ro.product.device)"; exit 1; }
 
 if [ -f "$PM_OFF" ]; then
     rm -f "$PM_OFF"

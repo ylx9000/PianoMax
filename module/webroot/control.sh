@@ -12,7 +12,11 @@
 #   control.sh toggle                -> flip the module on/off
 #   control.sh apply | restore       -> full pass
 
-MODDIR=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
+# Derive PM_DIR directly: exporting it before sourcing common.sh lets the
+# helper's module-root walk short-circuit (its own dirname + cd pass is then
+# skipped -- measured 2 execve per call on this box).
+PM_DIR=$(cd "${0%/*}/.." 2>/dev/null && pwd)
+MODDIR=$PM_DIR
 . "$MODDIR/lib/common.sh"
 
 # Same device gate as every other entry point: the node map below is
@@ -20,11 +24,14 @@ MODDIR=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
 # it from a WebUI tap.  The read-only snapshot path is exempted so the
 # UI can still show why nothing works.
 pm_device_gate() {
-    [ "$(getprop ro.product.device)" = "piano" ] && return 0
+    # Read-only views skip the probe entirely: the getprop below is a
+    # fork+exec (~60 ms measured on this box) paid on every UI poll, and the
+    # snapshot path is exempt anyway -- the device gate exists to stop
+    # WRITES, and the UI needs the snapshot to explain why writes fail.
     case "$1" in
         snapshot | presets) return 0 ;;
-        *)        echo "err:unsupported_device"; exit 2 ;;
     esac
+    [ "$(getprop ro.product.device)" = "piano" ] || { echo "err:unsupported_device"; exit 2; }
 }
 pm_device_gate "${1:-}"
 
@@ -70,7 +77,7 @@ bounds() {
         edboost)    echo "0 100" ;;
         gpu_idle)   echo "80 10000000" ;;
         gpu_ifpc)   echo "0 1" ;;
-        gpu_minp)   echo "0 12" ;;
+        gpu_minp)   echo "0 13" ;;   # kgsl-3d0 num_pwrlevels=14 on piano (0..13, 1100..160 MHz)
         gpu_lvl)    echo "0 12" ;;
         ddr)        echo "547000 4761000" ;;
         llcc)       echo "350000 1211000" ;;
@@ -78,7 +85,16 @@ bounds() {
     esac
 }
 
-cmd_snapshot() { sh "$MODDIR/status.sh" full; }
+# Sourced, not forked: one exec() from the WebView already pays one sh
+# (control.sh itself); a second one for status.sh was ~33 ms of pure process
+# overhead per poll.  status.sh guards its own sourcing (PM_DIR is set here).
+# MODE defaults to full; "snapshot" skips the slider-value block (the UI's
+# steady-state poll only needs the live tiles, the verdict keys and the
+# module state files -- measured ~0.25 s cheaper per poll on this box).
+# MODE passthrough: $2 is "full" (default) or "snapshot" -- the light poll
+# that skips the slider block. The function must receive it explicitly: a
+# POSIX function invoked without arguments does not inherit the script's $2.
+cmd_snapshot() { . "$MODDIR/status.sh" "$1"; }
 
 cmd_set() {
     k=$1; v=$2
@@ -119,7 +135,13 @@ cmd_set() {
             for i in 6 7; do echo "cpu$i $b" > "$TM/cpu_limits" 2>/dev/null; done
             echo "$a" > "$CFG/policy0/scaling_max_freq" 2>/dev/null
             echo "$b" > "$CFG/policy6/scaling_max_freq" 2>/dev/null
-            pm_log "target set $a/$b"
+            # Read-back (F4): cpu_limits is write-only, but scaling_max_freq
+            # is readable -- a kernel refusal must not surface as ok (the
+            # guard re-pin makes it true a tick later, so this is honesty
+            # not a permanent lie).
+            r0=""; IFS= read -r r0 < "$CFG/policy0/scaling_max_freq" 2>/dev/null
+            r6=""; IFS= read -r r6 < "$CFG/policy6/scaling_max_freq" 2>/dev/null
+            pm_log "target set $a/$b (readback $r0/$r6)"
             echo "ok:$a $b"; exit 0 ;;
         gov)
             case "$v" in
@@ -131,6 +153,18 @@ cmd_set() {
                     echo "$v" > "$PM_DIR/.gov"
                     echo "$v" > "$CFG/policy0/scaling_governor" 2>/dev/null
                     echo "$v" > "$CFG/policy6/scaling_governor" 2>/dev/null
+                    # Read-back: every other write path verifies; this was the
+                    # only one that reported ok on faith.  The kernel rejects
+                    # a governor that is not in scaling_available_governors
+                    # with no error to the writer.
+                    g0=""; g6=""
+                    IFS= read -r g0 < "$CFG/policy0/scaling_governor" 2>/dev/null
+                    IFS= read -r g6 < "$CFG/policy6/scaling_governor" 2>/dev/null
+                    if [ "$g0" != "$v" ] || [ "$g6" != "$v" ]; then
+                        pm_log "governor set $v FAILED (kernel kept $g0/$g6)"
+                        echo "err:gov_rejected"
+                        exit 2
+                    fi
                     pm_log "governor set $v"
                     echo "ok:$v"; exit 0 ;;
                 *) echo "err:bad_governor"; exit 2 ;;
@@ -164,6 +198,10 @@ cmd_set() {
             settings put secure miui_refresh_rate "$v" 2>/dev/null
             got=$(settings get secure user_refresh_rate 2>/dev/null)
             [ "$got" = "$v" ] || { echo "err:readback_$got"; exit 3; }
+            # Seed the .refresh_cache status.sh reads in the polling path:
+            # the cache was documented but never written, so the UI showed
+            # the stale value forever after a successful set (F3, 2026-10-23).
+            echo "$v" > "$PM_DIR/.refresh_cache" 2>/dev/null
             echo "ok:$v"; exit 0 ;;
         zones)
             # on  = the module takes over the compute zones (soft thermal
@@ -172,11 +210,52 @@ cmd_set() {
             #       re-enables every zone it had disabled.  Neither direction
             #       touches PM_OFF or restores frequencies -- this switch is
             #       only about who runs the soft thermal policy.
+            # Only the zone pass is needed here; a full apply rewrites every
+        # tunable and costs ~1.3 s of visible UI lag on every tap.
+            . "$MODDIR/lib/apply.sh"
             case "$v" in
-                on)  echo "module" > "$PM_ZONES"; sh "$MODDIR/tune.sh" apply >/dev/null 2>&1; echo "ok:on" ;;
-                off) echo "kernel" > "$PM_ZONES"; sh "$MODDIR/tune.sh" apply >/dev/null 2>&1; echo "ok:off" ;;
+                on)  echo "module" > "$PM_ZONES"; disable_compute_zones >/dev/null 2>&1 ;;
+                off) echo "kernel" > "$PM_ZONES"; disable_compute_zones >/dev/null 2>&1 ;;
                 *)   echo "err:bad_value"; exit 2 ;;
-            esac ; exit 0 ;;
+            esac
+            # Handing zones back or re-taking them changes what the spoof may
+            # touch: on the kernel-governed preset apply_temp_spoof degrades
+            # emul tiers to lock, and switching zones with a stale .spoof left
+            # the mode file describing an emul pass that never ran (clean emul
+            # without clearing the framework lock, or disabled zones without
+            # re-written 25000) until the next full apply.  Sync it here.
+            PM_SPOOF_STATE="$PM_DIR/.spoof"
+            apply_temp_spoof >/dev/null 2>&1 || { echo "err:spoof_apply"; exit 2; }
+            echo "ok:$v" ; exit 0 ;;
+        spoof)
+            # Temperature spoofing, four tiers.  The tier decides how much of
+            # the sensor set is blinded, so the accepted values are listed
+            # explicitly -- echoing whatever arrived into the state file would
+            # let any string through and silently become "off" downstream.
+            #   off    nothing (framework lock released, emul cleared)
+            #   lock   framework override only; no sensor is touched
+            #   normal CPU + GPU zones only
+            #   max    every spoofable zone
+            # "on" is still accepted as an alias for max.
+            # The write happens inside pm_apply_all (apply_temp_spoof), so the
+            # mode file alone never leaves a half-applied state behind: every
+            # boot / preset switch / re-arm re-derives it.  That is also why
+            # the full apply is skipped here -- switch flips must stay cheap.
+            . "$MODDIR/lib/apply.sh"
+            PM_SPOOF_STATE="$PM_DIR/.spoof"
+            case "$v" in
+                off)    rm -f "$PM_DIR/.spoof" ;;
+                lock)   echo "lock"   > "$PM_DIR/.spoof" ;;
+                normal) echo "normal" > "$PM_DIR/.spoof" ;;
+                max|on) echo "max"    > "$PM_DIR/.spoof" ;;
+                *)      echo "err:bad_value"; exit 2 ;;
+            esac
+            # Do not swallow the pass's exit: an empty classification set
+            # makes apply_temp_spoof ABORT, and "ok" here would tell the user
+            # the switch worked while nothing was written.
+            apply_temp_spoof >/dev/null 2>&1 || { echo "err:spoof_apply"; exit 2; }
+            echo "ok:$v"
+            exit 0 ;;
     esac
 
     # The GPU ceiling lives in .gpu so the presets and the slider share one
@@ -205,6 +284,12 @@ cmd_set() {
 
     if echo "$v" > "$node" 2>/dev/null; then
         back=$(cat "$node" 2>/dev/null)
+        # uclamp nodes answer "40.00" when written "40": strip a trailing
+        # all-zero decimal before comparing, or every uclamp set reports
+        # warn:clamped although the kernel took the value (2026-10-22).
+        # A real clamp (40 -> 39.50) still differs after this.
+        set -- $back; back=${1%%.*}
+        set -- $v;    v=${1%%.*}
         if [ "$back" = "$v" ]; then echo "ok:$back"; else echo "warn:clamped:$back"; fi
     else
         echo "err:write_failed"; exit 3
@@ -235,18 +320,35 @@ cmd_presets() {
     done
 }
 
+# ---- operation audit ----------------------------------------------------
+# Every mutating call from the WebUI lands here once.  She asked for richer
+# logs to develop against: an action log answers "what changed, when, by
+# which surface" without correlating guard ticks.  Read-only views
+# (snapshot/presets) are excluded -- they fire every 3 s and would flood.
+audit() { pm_log "ui-action: $1 (from $2)"; }
+caller_surface="webui"
 case "$1" in
     presets)  cmd_presets ;;
-    snapshot) cmd_snapshot ;;
-    set)      cmd_set "$2" "$3" ;;
-    toggle)   cmd_toggle ;;
-    apply)
+    snapshot) cmd_snapshot "${2:-full}" ;;
+    full)     cmd_snapshot "full" ;;
+    set)      audit "set $2=$3" "$caller_surface"; cmd_set "$2" "$3" ;;
+    toggle)   audit "toggle" "$caller_surface"; cmd_toggle ;;
+    apply)    audit "apply" "$caller_surface";
         # The UI treats "ok:" as success; tune.sh's own output does not carry
         # it, and passing it through verbatim made the verdict chip report an
         # error after every successful re-assert.
+        #
+        # One exception must not be laundered into success: with the module
+        # switched off, tune.sh apply replies "switched off" and does nothing.
+        # Wrapping that as ok: told the caller the parameters were re-applied
+        # when they were still factory.  Err: prefix + the existing
+        # describeErr mapping is the honest shape.
         r=$(sh "$MODDIR/tune.sh" apply 2>&1)
-        echo "ok:$r" ;;
-    restore)
+        case "$r" in
+            "switched off") echo "err:switched_off" ;;
+            *) echo "ok:$r" ;;
+        esac ;;
+    restore)  audit "restore" "$caller_surface";
         # Same sequence as toggle-off: without stopping the guard first, it
         # would keep re-pinning full clocks over the freshly restored values
         # and "factory state" would never actually hold.

@@ -3,7 +3,7 @@
 # Copyright (C) 2026 ylx9000
 # Licensed under the PolyForm Noncommercial License 1.0.0.
 #
-# Answers the six questions every support round starts with:
+# Answers the eight questions every support round starts with:
 # is the module alive, does it hold the lock alone, is the thermal table
 # ours, can anything override the ceiling, is the daemon fresh, and did
 # anything leave emulation or latch residue behind.  Read-only by design:
@@ -32,8 +32,14 @@ hdr "2. guard instance & lock"
 # su/sh wrappers whose arguments merely quote the path -- every hit is
 # verified against /proc/<pid>/cmdline naming the real script before counting.
 GPIDS=""
+MYSELF=$
 for c in $(pgrep -f "$PM_DIR/guard.sh" 2>/dev/null); do
-    tr '\000' ' ' < "/proc/$c/cmdline" 2>/dev/null | grep -q "sh.*$PM_DIR/guard.sh" && GPIDS="$GPIDS $c"
+    # Exclude our own process tree: transient pipeline children (the diag
+    # shell spawning this very probe) inherit the pattern in their cmdline
+    # and were counted as a second guard (F3, hit live 2026-10-23).
+    ppid=$(awk '/^PPid:/{print $2}' "/proc/$c/status" 2>/dev/null)
+    case " $MYSELF $c " in *" $ppid "*) continue ;; esac
+    tr '\000' ' ' < "/proc/$c/cmdline" 2>/dev/null | grep -q "^sh $PM_DIR/guard.sh" && GPIDS="$GPIDS $c"
 done
 GPIDS=$(echo $GPIDS)
 LOCKPID=$(cat "$PM_DIR/.guard_lock/pid" 2>/dev/null)
@@ -61,10 +67,21 @@ if [ -f "$PM_DIR/.thermal_mode" ]; then
     else
         say_fail "stamp present but decrypt.txt missing -- daemon never reloaded?"
     fi
-    # cross-check the deployed table bytes against the module copy
+    # Cross-check the deployed table bytes against the module copy.  The
+    # earlier version only printed the module-side md5, which could never fail
+    # -- a check that has no false branch is a decoration, not a diagnostic.
+    # What it should answer is: is the file the daemon is actually reading
+    # still byte-identical to the table this module shipped?
     if [ -f "$PM_DIR/thermal/$MODE/thermal-normal.conf" ]; then
         ENC=$(md5sum "$PM_DIR/thermal/$MODE/thermal-normal.conf" | cut -d' ' -f1)
-        say_ok "module table ($MODE) md5: $ENC"
+        LIVE=$(md5sum /data/vendor/thermal/config/thermal-normal.conf 2>/dev/null | cut -d' ' -f1)
+        if [ -z "$LIVE" ]; then
+            say_warn "deployed thermal-normal.conf unreadable -- cannot cross-check"
+        elif [ "$LIVE" = "$ENC" ]; then
+            say_ok "deployed table == module table ($MODE, md5 $LIVE)"
+        else
+            say_fail "deployed table md5 $LIVE != module $MODE md5 $ENC -- cloud overwrote or swap failed"
+        fi
     fi
 else
     say_warn "no .thermal_mode stamp -- running in re-pin mode (stock table)"
@@ -74,7 +91,6 @@ THERM=$(getprop init.svc.mi_thermald)
 
 hdr "4. ceiling effectiveness"
 CFG=/sys/devices/system/cpu/cpufreq
-M0=$(grep -m1 '^target' "$PM_DIR/.thermal_mode" 2>/dev/null)
 A0=$(cat "$CFG/policy0/scaling_max_freq" 2>/dev/null)
 A6=$(cat "$CFG/policy6/scaling_max_freq" 2>/dev/null)
 C0=$(cat "$CFG/policy0/scaling_cur_freq" 2>/dev/null)
@@ -100,20 +116,99 @@ FRZ=$(cat /sys/fs/cgroup/uid_0/cgroup.freeze 2>/dev/null)
 [ -n "$FRZ" ] && echo "  uid_0 cgroup.freeze=$FRZ"
 
 hdr "5. residue checks"
+# emul_temp is a DEVICE_ATTR_WO node (mode 0200, no show handler), so reading
+# it back is impossible by design -- not because the node disappears.  Residue
+# is therefore detected through the zone temperature: exactly 25000 is the
+# module signature, and the .spoof state file says which tier asked for it.
 EMU=0
+POLL=0
 for z in /sys/class/thermal/thermal_zone*; do
-    v=$(cat "$z/emul_temp" 2>/dev/null)
-    [ -n "$v" ] && [ "$v" != "0" ] && { echo "  $z emul_temp=$v"; EMU=$((EMU+1)); }
+    v=$(cat "$z/temp" 2>/dev/null)
+    [ "$v" = "25000" ] || continue
+    EMU=$((EMU+1))
+    case " 47 48 49 50 51 52 53 54 55 57 58 59 60 61 63 64 65 66 67 68 77 " in
+        *" ${z#/sys/class/thermal/thermal_zone} "*) POLL=$((POLL+1)); echo "  PROTECTED zone emulated: $z" ;;
+    esac
 done
-[ "$EMU" -eq 0 ] && say_ok "no emul_temp residue (all zones clean)" || say_fail "$EMU zone(s) with live temperature emulation"
-IM=$(find "$PM_DIR" -name '.thermal_orig' -maxdepth 2 2>/dev/null | head -1)
-[ -n "$IM" ] && echo "  note: .thermal_orig snapshot exists (revert data available)"
+# Only the emul tiers can legitimately leave 25000 behind; lock and off both
+# promise zero zones, so any residue under those two is a real fault.
+case "$(cat "$PM_DIR/.spoof" 2>/dev/null)" in
+    on|max|normal)
+        if [ "$EMU" -gt 0 ]; then
+            say_ok "temp spoof active: $EMU zone(s) at 25 C"
+        else
+            say_warn "spoof tier is emul but no zone reads 25 C (between refreshes)"
+        fi ;;
+    *)
+        [ "$EMU" -eq 0 ] && say_ok "no temperature emulation residue" \
+            || say_fail "$EMU zone(s) still emulated with the switch off" ;;
+esac
+# The check that must never pass: a protection-family zone reading the spoofed
+# value means the spoof reached somewhere it must not, whatever tier is active.
+[ "$POLL" -eq 0 ] && say_ok "protection family clean (0 of 21 zones emulated)" \
+    || say_fail "$POLL protection zone(s) emulated -- spoof escaped its set"
+[ -d "$PM_DIR/.thermal_orig" ] && echo "  note: .thermal_orig snapshot exists (revert data available)"
 
-hdr "6. recent log tail"
+hdr "6. tripwire coverage"
+# Structural check, not a count.  disable_compute_zones switches the kernel
+# governor off for a set of zones; the guard's tripwire has to read that same
+# set.  When it did not, several thermal zones had the governor silenced, were
+# spoofed to 25 C, and were read by nothing -- three protective layers off at
+# once with no visible symptom.  The gap came from maintaining two hardcoded
+# lists; both sides now derive from PM_SILICON_ZONES, and this check proves it
+# on the device rather than in the source.
+. "$PM_DIR/lib/common.sh" 2>/dev/null
+OFFLIST=""; OFFN=0
+for z in /sys/class/thermal/thermal_zone*; do
+    m=""; IFS= read -r m < "$z/mode" 2>/dev/null
+    [ "$m" = "disabled" ] || continue
+    zn=${z##*/}; zn=${zn#thermal_zone}
+    OFFLIST="$OFFLIST $zn"; OFFN=$((OFFN + 1))
+done
+UNGOV=""; UNGOVN=0
+for zn in $OFFLIST; do
+    case "$PM_SILICON_ZONES" in
+        *" $zn "*) ;;
+        *) UNGOV="$UNGOV $zn"; UNGOVN=$((UNGOVN + 1)) ;;
+    esac
+done
+if [ "$UNGOVN" -eq 0 ]; then
+    say_ok "tripwire covers every disabled zone ($OFFN/$OFFN)"
+else
+    say_warn "$UNGOVN disabled zone(s) no tripwire reads:$UNGOV -- governor off, module blind; update PM_SILICON_ZONES"
+fi
+
+hdr "7. recent log tail"
 echo "  --- last 5 log lines ---"
 tail -5 "$PM_DIR/pianomax.log" 2>/dev/null | sed 's/^/  /'
 ERRS=$(grep -cE 'wr miss|wr fail' "$PM_DIR/pianomax.log" 2>/dev/null)
 [ "$ERRS" = "0" ] && say_ok "no write failures in log" || say_warn "$ERRS write failure lines in log history"
+
+hdr "8. state drift"
+# .target must equal the active preset's own row in presets.txt.  A
+# mismatch is the "UI shows one thing, the box runs another" class: a
+# slider write the user forgot, or a stage frozen into the wrong file.
+CUR=$(cat "$PM_DIR/.profile" 2>/dev/null)
+case "$CUR" in
+    省电) PK=powersave ;; 均衡) PK=balanced ;; 性能) PK=performance ;;
+    *) PK=extreme ;;
+esac
+LINE=$(grep "^$PK	" "$PM_DIR/presets.txt" 2>/dev/null | head -n 1)
+if [ -n "$LINE" ] && [ -f "$PM_DIR/.target" ]; then
+    P0=$(echo "$LINE" | cut -f3); P6=$(echo "$LINE" | cut -f4)
+    T=$(cat "$PM_DIR/.target")
+    T0=$(echo "$T" | cut -d' ' -f1); T6=$(echo "$T" | cut -d' ' -f2)
+    if [ "$T0" = "$P0" ] && [ "$T6" = "$P6" ]; then
+        say_ok ".target matches preset $PK ($T0/$T6)"
+    else
+        say_warn ".target $T0/$T6 differs from preset $PK row $P0/$P6 (slider override or stale state)"
+    fi
+else
+    say_warn ".profile or .target missing (fresh install?)"
+fi
+# A back-off stage older than a day is stale: the guard clears it on the
+# first live reading, so a persistent .stage means no guard is running.
+[ -f "$PM_DIR/.stage" ] && say_warn ".stage present: $(cat "$PM_DIR/.stage") (active back-off)"
 
 echo ""
 echo "==== summary: ok=$OK warn=$WARN fail=$FAIL ===="

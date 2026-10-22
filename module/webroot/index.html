@@ -22,6 +22,15 @@
   --shadow:0 1px 2px rgba(16,16,19,.06);
   --ease:cubic-bezier(.32,.72,0,1);
 }
+/* Dark tokens, applied in two situations:
+   1. html[data-theme="dark"] -- the user picked dark.
+   2. html[data-theme="auto"] inside a dark color-scheme -- the system is dark.
+   The second case has to live in CSS: the script that resolves "auto" into a
+   concrete theme runs at the end of the body, so without this rule a
+   dark-mode device painted the light palette first and then flipped, which
+   also meant neither brand logo was visible for that first frame (#brand
+   rules only match data-theme="dark").  Same declarations, duplicated by
+   necessity -- the selector list cannot share a block with a media query. */
 html[data-theme="dark"]{
   --bg:#0b0b0d; --surface:#141418; --surface-2:#101013; --field:#1c1c21;
   --fg:#f2f2f5; --fg-2:#a5a5b0; --fg-3:#6f6f7a;
@@ -30,6 +39,17 @@ html[data-theme="dark"]{
   --ok:#43c07a; --warn:#e0a33c; --bad:#ff6b6b;
   --ok-soft:#0f2418; --warn-soft:#2a1f0d; --bad-soft:#2a1313;
   --shadow:0 1px 2px rgba(0,0,0,.5);
+}
+@media (prefers-color-scheme: dark){
+  html[data-theme="auto"]{
+    --bg:#0b0b0d; --surface:#141418; --surface-2:#101013; --field:#1c1c21;
+    --fg:#f2f2f5; --fg-2:#a5a5b0; --fg-3:#6f6f7a;
+    --line:#26262d; --line-2:#1d1d23;
+    --accent:#4c8dff; --accent-fg:#08111f; --accent-soft:#122036;
+    --ok:#43c07a; --warn:#e0a33c; --bad:#ff6b6b;
+    --ok-soft:#0f2418; --warn-soft:#2a1f0d; --bad-soft:#2a1313;
+    --shadow:0 1px 2px rgba(0,0,0,.5);
+  }
 }
 *,*::before,*::after{box-sizing:border-box}
 html,body{margin:0;padding:0;background:var(--bg)}
@@ -48,9 +68,14 @@ body{
 header{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 18px) 0 14px}
 header .name{font-size:19px;font-weight:650;letter-spacing:-.01em}
 .brand{width:26px;height:26px;flex:none}
+/* Auto mode must resolve here too, not only after the script runs. */
 .brand-light-img{display:none}
 html[data-theme="dark"] .brand-dark-img{display:none}
 html[data-theme="dark"] .brand-light-img{display:block}
+@media (prefers-color-scheme: dark){
+  html[data-theme="auto"] .brand-dark-img{display:none}
+  html[data-theme="auto"] .brand-light-img{display:block}
+}
 header .ver{font-size:12px;color:var(--fg-3);margin-left:2px}
 header .grow{flex:1}
 .icon{width:34px;height:34px;border-radius:var(--radius-sm);border:1px solid var(--line);
@@ -77,6 +102,17 @@ header .grow{flex:1}
   transition:transform .12s var(--ease)}
 .verdict .act:active{transform:scale(.96)}
 .verdict .act[hidden]{display:none}
+  /* Four-tier selector for the spoof switch.  A checkbox cannot express this:
+     the tiers differ in how many sensors stop reporting, and that difference is
+     the whole point -- so it gets its own control with one button per tier. */
+  .seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+  .seg button{font:inherit;font-size:12.5px;font-weight:600;padding:9px 4px;border-radius:10px;
+    border:1px solid var(--line);background:transparent;color:var(--fg-2);cursor:pointer;
+    transition:background .12s,border-color .12s,color .12s;white-space:nowrap}
+  .seg button:active{transform:scale(.97)}
+  .seg button[aria-checked="true"]{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+  .seg button[disabled]{opacity:.42;cursor:not-allowed}
+  .seg button[aria-checked="true"][data-tier="max"]{background:var(--warn-soft);color:var(--warn)}
 .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 8px;text-align:center;box-shadow:var(--shadow);min-width:0}
 .tile .v{font-size:15px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -89,8 +125,11 @@ nav button{flex:1;border:0;background:transparent;color:var(--fg-2);font:inherit
   transition:background .18s var(--ease),color .18s var(--ease)}
 nav button.on{background:var(--surface);color:var(--fg);font-weight:650;box-shadow:var(--shadow)}
 nav button:focus:not(:focus-visible){outline:none}
-section{display:none;animation:enter .22s var(--ease)}
-section.on{display:block}
+section{display:none}
+section.on{display:block;animation:enter .22s var(--ease)}
+/* Hidden panels don't animate: contain skips layout+paint work for display:none
+   subtrees that JS would otherwise relayout every snapshot render. */
+section[hidden]{display:none}
 @keyframes enter{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 .prof{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -115,6 +154,47 @@ section.on{display:block}
 .row .txt{flex:1;min-width:0}
 .row .t1{font-size:14.5px;font-weight:500;letter-spacing:-.005em;display:flex;align-items:center;gap:6px}
 .row .t2{font-size:12px;color:var(--fg-3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+/* "?" explainer button + info modal */
+.qbtn{flex:none;position:relative;width:20px;height:20px;margin-left:2px;border-radius:50%;border:1px solid var(--line);
+  background:var(--surface-2);color:var(--fg-3);font-size:11.5px;line-height:1;padding:0;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s}
+/* 18px 的圆钮在 WebView 里几乎点不中：负 inset 把热区扩到 ~30px */
+.qbtn::after{content:"";position:absolute;inset:-5px}
+.qbtn:active{border-color:var(--accent);color:var(--accent)}
+.info-ov{position:fixed;inset:0;z-index:90;background:rgba(9,10,14,.46);
+  -webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);
+  display:flex;align-items:flex-end;justify-content:center;opacity:0;
+  transition:opacity .26s var(--ease);-webkit-tap-highlight-color:transparent}
+/* Author display:flex overrides the UA [hidden]{display:none}: without this
+   rule a closed sheet stayed on screen as an invisible full-screen layer and
+   swallowed every tap below it -- the "nothing in the UI is clickable" bug. */
+.info-ov[hidden]{display:none}
+.info-ov.show{opacity:1}
+.info-card{background:var(--surface);border-radius:22px 22px 0 0;max-width:560px;width:100%;
+  max-height:78vh;display:flex;flex-direction:column;transform:translateY(56px);
+  transition:transform .3s var(--ease);box-shadow:0 -12px 44px rgba(9,10,14,.24);
+  padding-bottom:env(safe-area-inset-bottom)}
+.info-ov.show .info-card{transform:none}
+.info-grab{width:36px;height:4px;border-radius:2px;background:var(--line);margin:10px auto 2px;flex:none}
+.info-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:8px 20px 12px;
+  border-bottom:1px solid var(--line-2);flex:none}
+.info-ht{min-width:0}
+.info-kicker{font-size:10.5px;font-weight:650;letter-spacing:.1em;color:var(--fg-3);margin-bottom:1px}
+.info-t{font-size:17px;font-weight:650;letter-spacing:-.01em;color:var(--fg)}
+.info-x{flex:none;width:30px;height:30px;border:0;border-radius:50%;background:var(--field);color:var(--fg-2);
+  font-size:17px;line-height:1;cursor:pointer;transition:background .15s,transform .12s var(--ease)}
+.info-x:active{transform:scale(.9);background:var(--line)}
+.info-b{padding:14px 20px 26px;font-size:14px;line-height:1.7;color:var(--fg-2);
+  overflow-y:auto;-webkit-overflow-scrolling:touch}
+.info-lead{margin:0 0 12px;padding:11px 14px;border-radius:12px;background:var(--accent-soft);
+  color:var(--fg);font-size:14px;font-weight:550;line-height:1.65}
+.info-lead b{color:var(--accent);font-weight:650}
+.info-list{margin:0;padding:0;list-style:none}
+.info-list li{position:relative;padding:7px 0 7px 17px}
+.info-list li+li{border-top:1px solid var(--line-2)}
+.info-list li::before{content:"";position:absolute;left:2px;top:16px;width:5px;height:5px;border-radius:50%;
+  background:var(--accent);opacity:.6}
+.info-list b{color:var(--fg);font-weight:650}
 .row .val{font-size:14.5px;font-variant-numeric:tabular-nums;color:var(--fg-2);flex:none}
 .tag{font-size:10px;font-weight:600;letter-spacing:.02em;padding:1px 6px;border-radius:var(--radius-pill);flex:none}
 .tag.ro{background:var(--field);color:var(--fg-3)}
@@ -151,6 +231,11 @@ select{border:1px solid var(--line);background:var(--surface);color:var(--fg);fo
 .btn.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent}
 .btn.ghost{background:transparent}
 .btn:disabled{opacity:.45;cursor:default}
+.btn.danger-arm{background:var(--bad-soft);border-color:var(--bad);color:var(--bad);font-weight:600}
+.logbar{display:flex;gap:6px;padding:8px 15px 0;flex-wrap:wrap}
+.logchip{border:1px solid var(--line);background:var(--surface-2);color:var(--fg-2);
+  border-radius:var(--radius-pill);padding:4px 12px;font-size:12px;cursor:pointer}
+.logchip[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 .pre{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-sm);
   padding:11px 12px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg-2);
   white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto;margin-top:10px}
@@ -210,7 +295,7 @@ select{border:1px solid var(--line);background:var(--surface);color:var(--fg);fo
     <div class="group">
       <h2>性能档位</h2>
       <div class="prof" id="profRow"></div>
-      <div class="note" id="profNote">四个档位各自是一组完整的参数。切换后下面所有滑块都会跟着变；手动拖过的滑块会覆盖档位值，直到你再选一次档位。</div>
+      <div class="note" id="profNote">四个档位各自是一组完整的参数。切换后下面所有滑块都会跟着变；手动拖过的滑块会覆盖档位值；切换档位或重新应用参数时，滑块会回到档位值。</div>
     </div>
 
     <div class="group">
@@ -255,7 +340,10 @@ select{border:1px solid var(--line);background:var(--surface);color:var(--fg);fo
           </div>
         </div>
       </div>
-        <div class="note">两条绊线彼此独立，默认值随档位变化（芯片 90-105 °C，机身 50-75 °C，见 README 档位表）。越线后先降一档维持运行，仍过热再降一档，级数用尽才整体还原并暂停；温度回落两分钟后逐级恢复。极限档满载时芯片结温将接近 105，触发属于保护机制生效而非故障。</div>
+        <div class="note">两条绊线彼此独立，默认值随档位变化（芯片 90-105 °C，机身 50-75 °C，见 README 档位表）。
+**越线后先降一档**维持运行，仍过热再降一档，级数用尽才整体还原并暂停。
+温度回落两分钟后逐级恢复，不需要手动干预。
+极限档满载时芯片结温将接近 105，触发属于保护机制生效而非故障。</div>
     </div>
 
     <div class="group">
@@ -267,6 +355,25 @@ select{border:1px solid var(--line);background:var(--surface);color:var(--fg);fo
         </div>
       </div>
       <div class="note" id="zoneNote"></div>
+    </div>
+
+    <div class="group">
+      <div class="card">
+        <div class="row">
+          <div class="txt"><div class="t1">温度伪装</div><div class="t2" id="spoofSub">—</div></div>
+        </div>
+        <div class="seg" id="spoofSeg" role="radiogroup" aria-label="温度伪装档位">
+          <button type="button" data-tier="off" role="radio">关闭</button>
+          <button type="button" data-tier="lock" role="radio">仅框架锁</button>
+          <button type="button" data-tier="normal" role="radio">普通</button>
+          <button type="button" data-tier="max" role="radio">极致</button>
+        </div>
+      </div>
+      <div class="note" id="spoofNote">把传感器读数报低来阻止系统降频，**四档按「蒙住多少传感器」分级，默认关闭**。
+<b>仅框架锁</b>：只把框架热状态锁为「正常」，内核温控不受影响，不损失任何真实读数——游戏内降画质判定走的是这一层。
+<b>普通</b>：额外把 CPU 与 GPU 簇共 28 个温区写成 25°C，DSP、存储、摄像头、视频与 PMIC 仍是真值。
+<b>极致</b>：49 个计算温区全部伪装，芯片绊线只剩 PMIC 8 区有效。
+任何档位下，电池、充电、BCL、PMIC 结温（69–76）与机身绊线那 10 个温区（57/58/59/60/63/64/65/66/67/68）都保持真实，硬件过温保护照常；开启 emul 的档位会同时把机身绊线收紧 3°C。高温环境请配合散热器。</div>
     </div>
 
     <div class="group">
@@ -316,10 +423,24 @@ select{border:1px solid var(--line);background:var(--surface);color:var(--fg);fo
           <button class="btn ghost" id="btnRestore">还原全部出厂值</button>
         </div>
       </div>
-      <pre class="pre" id="logBox" hidden></pre>
+      <div class="logbar" id="logFilterBar" hidden></div>
+<pre class="pre" id="logBox" hidden></pre>
     </div>
-    <div class="note">PianoMax v1.0.0-beta · 小米平板 8 Pro（piano / SM8750P）专用。温度读数保持真实，硬件保护温区不受影响。</div>
+    <div class="note">PianoMax · 小米平板 8 Pro（piano / SM8750P）专用。硬件保护温区（电池/充电/BCL/PMIC）始终保留原厂读数与保护；计算温区的温度伪装是默认关闭的四档独立开关。</div>
   </section>
+</div>
+<div class="info-ov" id="infoOverlay" hidden>
+  <div class="info-card" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+    <div class="info-grab" aria-hidden="true"></div>
+    <div class="info-head">
+      <div class="info-ht">
+        <div class="info-kicker">参数说明</div>
+        <div class="info-t" id="infoTitle"></div>
+      </div>
+      <button class="info-x" type="button" aria-label="关闭">&#215;</button>
+    </div>
+    <div class="info-b"></div>
+  </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
@@ -349,6 +470,8 @@ var CTL = MOD + "/webroot/control.sh";
 var PROFILE = MOD + "/profile.sh";
 
 function ksuExec(cmd, timeoutMs) {
+  // resolve-only executor: a second .then(onRejected) never fires, callers
+  // get {errno:-*} objects on failure instead of rejections.
   return new Promise(function (resolve) {
     if (typeof ksu === "undefined" || !ksu.exec) {
       resolve({ errno: -1, stdout: "", stderr: "no ksu bridge" });
@@ -429,43 +552,43 @@ var TRIP_ROWS = [];
 // live     which snapshot key reads it back
 // kind     num | sel | sw
 var PERF_PARAMS = [
-  { key: "cpu_max0", label: "小核上限", sub: "cpu0-5", step: 67200, min: 556800, max: 3532800, live: "max0", kind: "num" },
-  { key: "cpu_max6", label: "大核上限", sub: "cpu6-7", step: 67200, min: 1017600, max: 4320000, live: "max6", kind: "num" },
-  { key: "gov", label: "调度器", sub: "两簇同时生效", kind: "sel", live: "gov", options: ["performance", "walt", "schedutil", "powersave"] },
-  { key: "gpu_lvl", label: "GPU 性能档位", sub: "0 = 1100 MHz，数字越大上限越低", step: 1, min: 0, max: 12, live: "gpu_lvl", kind: "num" },
-  { key: "gpu_idle", label: "GPU 空闲计时", sub: "越大越不容易降频", step: 1000000, min: 80, max: 10000000, live: "p_gpu_idle", kind: "num" },
-  { key: "gpu_ifpc", label: "帧压缩 IFPC", sub: "关闭可省一帧延迟", kind: "sw", live: "p_gpu_ifpc" },
-  { key: "ddr", label: "DDR 下限", sub: "prime 投票", step: 100000, min: 547000, max: 4761000, live: "p_ddr", kind: "num" },
-  { key: "llcc", label: "LLCC 下限", sub: "prime 投票", step: 50000, min: 350000, max: 1211000, live: "p_llcc", kind: "num" }
+  { key: "cpu_max0", label: "小核上限", sub: "cpu0-5", step: 67200, min: 556800, max: 3532800, live: "max0", kind: "num", info: "这里是 6 个小核允许跑到的最高频率，调低更省电、发热更小。\n**每秒强制生效**：系统或温控把它压下去，守护进程会立刻拉回来。\n温度越过芯片绊线时，守护进程会按档位主动下调它降温。\n数值单位是 kHz，3532800 即 3.53 GHz。" },
+  { key: "cpu_max6", label: "大核上限", sub: "cpu6-7", step: 67200, min: 1017600, max: 4320000, live: "max6", kind: "num", info: "两个大核的性能天花板，游戏主要吃这里，4320000 即 4.32 GHz 满血。\n**与小核同一套机制**：守护进程每秒把它顶回设定值。\n过温降档时大核降得更深（88% → 78%），先保住温度再保性能。\n日常不必拉满：中等值发热明显更低，性能差异多数场景感知不到。" },
+  { key: "gov", label: "调度器", sub: "两簇同时生效", kind: "sel", live: "gov", options: ["performance", "walt", "schedutil", "powersave"], info: "决定 CPU 频率跟得多快、多激进，保持默认 walt 即可。\n**walt**：按负载窗口预测提频，游戏跟手，选它。\n**performance**：恒定最高频，只适合锁频测试，日常空耗电。\n**schedutil**：按利用率线性给频，更省电但提频慢半拍。\n守护进程每秒把这里的值写回，防止系统服务改掉。" },
+  { key: "gpu_lvl", label: "GPU 性能档位", sub: "0 = 1100 MHz，数字越大上限越低", step: 1, min: 0, max: 12, live: "gpu_lvl", kind: "num", info: "GPU 最高能用到第几档，0 档 = 1100 MHz 满血，共 13 档。\n**0 是最快档**，数字越大上限越低；游戏保持 0。\n温控事件后驱动会偷偷压档，守护进程检测到就锁回 0。\n日常可调到 1-2 档，肉眼几乎看不出差别，发热小一截。" },
+  { key: "gpu_idle", label: "GPU 空闲计时", sub: "越大越不容易降频", step: 1000000, min: 80, max: 10000000, live: "p_gpu_idle", kind: "num", info: "GPU 空闲多久后才允许降频（微秒），帧率抖动时加大它。\n**调大**：渲染间隙不掉频，帧生成更稳，代价是更耗电。\n**调小**：更省电，但场景切换时帧率容易抖。\n默认值是厂商折中；游戏掉帧先动它，再动 GPU 档位。" },
+  { key: "gpu_ifpc", label: "帧压缩 IFPC", sub: "关闭可省一帧延迟", kind: "sw", live: "p_gpu_ifpc", info: "画面变化不大时 GPU 跳过部分渲染来省电，**关掉能省一帧延迟**。\n关：每帧全功率渲染，触控到画面快一帧，功耗明显更高。\n开：日常省电，操作延迟感知不到。\n结论：玩低延迟游戏关，平时开。" },
+  { key: "ddr", label: "DDR 下限", sub: "prime 投票", step: 100000, min: 547000, max: 4761000, live: "p_ddr", kind: "num", info: "内存带宽的保底频率，大核满频时数据喂不饱就动这里。\n**调高**：CPU 满频时数据通道不堵，重载性能更稳，更耗电。\n**调低**：省电，轻负载无感，重载会卡带宽。\n4761000 是 LPDDR5X 规格上限；与 LLCC 下限一起调。" },
+  { key: "llcc", label: "LLCC 下限", sub: "prime 投票", step: 50000, min: 350000, max: 1211000, live: "p_llcc", kind: "num", info: "CPU/GPU 与内存之间最后一级缓存的保底频率。\n**它决定数据搬运效率**，是 DDR 的上游，两个通常一起调。\n调高：重载数据链路全速，性能稳。\n调低：省电优先，与 DDR 下限保持同方向即可。" }
 ];
 
 var MEM_PARAMS = [
-  { key: "min_free", label: "最小空闲内存", sub: "min_free_kbytes", step: 4096, min: 8192, max: 131072, live: "p_min_free", kind: "num" },
-  { key: "extfrag", label: "碎片阈值", sub: "extfrag_threshold", step: 25, min: 0, max: 1000, live: "p_extfrag", kind: "num" },
-  { key: "proact", label: "后台压缩", sub: "compaction_proactiveness", step: 5, min: 0, max: 100, live: "p_proact", kind: "num" },
-  { key: "min_ttl", label: "MGLRU 最短驻留", sub: "min_ttl_ms", step: 100, min: 0, max: 5000, live: "p_min_ttl", kind: "num" }
+  { key: "min_free", label: "最小空闲内存", sub: "min_free_kbytes", step: 4096, min: 8192, max: 131072, live: "p_min_free", kind: "num", info: "内核为紧急分配预留的内存水位（KB），防杀后台的第一道防线。\n**调大**：更抗内存风暴，桌面被系统杀掉的风险降低。\n**代价**：直接可用的内存变少。\n这台机器出过 OOM 连环杀桌面的事故，别低于默认值。" },
+  { key: "extfrag", label: "碎片阈值", sub: "extfrag_threshold", step: 25, min: 0, max: 1000, live: "p_extfrag", kind: "num", info: "内存碎片到什么程度就触发整理（0-1000），卡顿和它有关。\n**调低**：更早整理碎片，大块内存分配更容易成功。\n**代价**：后台多花一点 CPU。\n配合「后台压缩」一起看，两个都是让大块分配不卡的手段。" },
+  { key: "proact", label: "后台压缩", sub: "compaction_proactiveness", step: 5, min: 0, max: 100, live: "p_proact", kind: "num", info: "后台空闲时整理内存的积极程度（0-100）。\n**调高**：前台分配大块内存时的卡顿越少，游戏加载更稳。\n**调太高**：后台一直干活，常驻耗电。\n建议幅度 5-10 步地试，感知到卡顿再加。" },
+  { key: "min_ttl", label: "MGLRU 最短驻留", sub: "min_ttl_ms", step: 100, min: 0, max: 5000, live: "p_min_ttl", kind: "num", info: "新调入的内存页在这个时间内保证不被回收（毫秒）。\n**调大**：游戏资源等缓存不被反复丢弃重读，切后台回来不重载。\n**内存紧张时调太大**：可回收页变少，反而更容易杀后台。\n保持默认即可，切换重载明显才加。" }
 ];
 
 var SCHED_PARAMS = [
-  { key: "slice", label: "基础时间片", sub: "base_slice_ns", step: 250000, min: 500000, max: 10000000, live: "p_slice", kind: "num" },
-  { key: "mig", label: "迁移代价", sub: "migration_cost_ns", step: 50000, min: 50000, max: 2000000, live: "p_mig", kind: "num" },
-  { key: "uclamp_min", label: "前台最低提升", sub: "top-app uclamp.min", step: 5, min: 0, max: 100, live: "p_uclamp_min", kind: "num" },
-  { key: "bg_max", label: "后台频率上限", sub: "background uclamp.max", step: 5, min: 0, max: 100, live: "p_bg_max", kind: "num" },
-  { key: "rtdef", label: "RT 最低提升", sub: "sched_util_clamp_min_rt_default", step: 64, min: 0, max: 1024, live: "p_rtdef", kind: "num" }
+  { key: "slice", label: "基础时间片", sub: "base_slice_ns", step: 250000, min: 500000, max: 10000000, live: "p_slice", kind: "num", info: "每个任务在一个窗口内被评估负载的时长（纳秒），影响频率升降的脾气。\n**调大**：负载统计更平滑，频率升降更保守、更省电。\n**调小**：响应更快，但更容易抖动。\n一般不动它。" },
+  { key: "mig", label: "迁移代价", sub: "migration_cost_ns", step: 50000, min: 50000, max: 2000000, live: "p_mig", kind: "num", info: "任务跨核迁移的虚拟代价，调度器据此决定挪不挪核。\n**调大**：少挪核，缓存命中率更高，重载更稳。\n**调小**：更积极挑空闲核，响应快。\n大小核切换频繁的场景（游戏+后台下载）影响最明显。" },
+  { key: "uclamp_min", label: "前台最低提升", sub: "top-app uclamp.min", step: 5, min: 0, max: 100, live: "p_uclamp_min", kind: "num", info: "前台任务最低按多少利用率给频（0-100），**「跟手」的主要开关**。\n设 40 = 调度器把前台当作至少 40% 的负载来喂频率。\n**调高**：冷启动、滑动提频更快更稳，更耗电。\n**调低**：省电，但轻负载会觉得「肉」。" },
+  { key: "bg_max", label: "后台频率上限", sub: "background uclamp.max", step: 5, min: 0, max: 100, live: "p_bg_max", kind: "num", info: "后台任务最多按多少利用率给频（0-100）。\n**压低**：后台下载/同步的负载信号被截断，不再抢前台的性能。\n附带省电，后台任务只是变慢、不会被杀。\n前台流畅度受后台干扰时先动这里。" },
+  { key: "rtdef", label: "RT 最低提升", sub: "sched_util_clamp_min_rt_default", step: 64, min: 0, max: 1024, live: "p_rtdef", kind: "num", info: "实时（RT）线程的最低利用率下限，普通 uclamp 管不到它们。\nRT 线程是音频、触控这类「不能卡」的关键路径。\n**调高**：这类线程响应更有保障，代价是整体功耗。\n一般保持默认，除非明确在调音频/触控延迟。" }
 ];
 
 var WALT_PARAMS = [
-  { key: "boost_ms", label: "触摸提频时长", sub: "input_boost_ms", step: 50, min: 0, max: 2000, live: "p_boost_ms", kind: "num" },
-  { key: "edboost", label: "ED 提频", sub: "sched_ed_boost", step: 5, min: 0, max: 100, live: "p_edboost", kind: "num" }
+  { key: "boost_ms", label: "触摸提频时长", sub: "input_boost_ms", step: 50, min: 0, max: 2000, live: "p_boost_ms", kind: "num", info: "手指落屏后强制提频的持续时间（毫秒），首帧跟手就靠它。\n**生效方式**：触摸瞬间调度器直接把负载信号拉满一小段时间。\n**0 = 关闭**；游戏建议 500 以上。\n太大无益：提频窗口超过一次操作也没有额外收益，只是多耗电。" },
+  { key: "edboost", label: "ED 提频", sub: "sched_ed_boost", step: 5, min: 0, max: 100, live: "p_edboost", kind: "num", info: "事件到来时的额外负载注入比例，和触摸提频配合工作。\n**决定「点一下」之后频率冲得多高**：过高发烫，过低发钝。\n与触摸提频时长一起调：先定时长，再收强度。\n日常 20-40 足够，游戏可以再往上。" }
 ];
 
 var SYS_PARAMS = [
-  { key: "watchdog", label: "看门狗超时", sub: "system_server 被杀阈值", step: 30000, min: 60000, max: 600000, live: "p_watchdog", kind: "num" },
-  { key: "refresh", label: "刷新率", sub: "user_refresh_rate", step: 12, min: 60, max: 144, live: "p_refresh", kind: "num" }
+  { key: "watchdog", label: "看门狗超时", sub: "system_server 被杀阈值", step: 30000, min: 60000, max: 600000, live: "p_watchdog", kind: "num", info: "system_server 连续无响应多久判定系统僵死（毫秒）。\n超时意味着系统服务层卡死，**守护进程会记录现场**供排查。\n这是诊断开关不是性能开关：上次桌面风暴就靠它排除了模块嫌疑。\n保持默认，不需要动。" },
+  { key: "refresh", label: "刷新率", sub: "user_refresh_rate", step: 12, min: 60, max: 144, live: "p_refresh", kind: "num", info: "屏幕刷新率（Hz），144 只在支持的应用里生效。\n**省电选 60/120，流畅选 144**：系统灭屏或省电时会自动回落。\n写入系统设置数据库；部分 ROM 会在息屏时静默改回，属系统行为。" }
 ];
 
 // ---------- snapshot ----------
-// One process, one round trip. The previous page ran 28 exec() calls every four
+// One process, one round trip. The previous page ran 28 exec() calls every three
 // seconds -- a measurable tax on the very thing it exists to tune.
 var SNAP = {};
 
@@ -479,8 +602,12 @@ function parseKV(text) {
   return out;
 }
 
-function snapshot() {
-  return ksuExec("sh " + CTL + " snapshot", 12000).then(function (r) {
+// mode: "full" pulls the slider values too (first paint of a session, and
+// after every write); "light" is the steady-state poll -- the shell side
+// skips the slider block, measured 800 ms -> 310 ms per poll on device.
+function snapshot(mode) {
+  var arg = mode === "light" ? " snapshot snapshot" : " full";
+  return ksuExec("sh " + CTL + arg, mode === "light" ? 6000 : 12000).then(function (r) {
     if (r.errno !== 0) {
       return { ok: false, err: (r.stderr || "snapshot failed").split("\n")[0] };
     }
@@ -497,6 +624,9 @@ function describeErr(out, stderr) {
     out_of_range: "超出允许范围",
     write_failed: "写入被内核拒绝",
     bad_governor: "不支持该调度器",
+    gov_rejected: "内核未接受该调度器",
+    switched_off: "模块处于关闭状态，请先打开总开关",
+    spoof_apply: "伪装应用失败：温区分类为空",
     bad_value: "取值不合法",
     missing: "缺少参数",
     write: "写入被内核拒绝",
@@ -545,6 +675,16 @@ function headRow(p) {
   var row = el("div", "row");
   var txt = el("div", "txt");
   var t1 = el("div", "t1", p.label);
+  // "?" opens the long explanation in a modal instead of packing it into
+  // the always-visible subtitle -- the page stays scannable, the detail
+  // is one tap away (she asked for exactly this shape, 2026-10-22).
+  if (p.info) {
+    var q = el("button", "qbtn", "?");
+    q.type = "button";
+    q.setAttribute("aria-label", p.label + " 说明");
+    q.addEventListener("click", function () { openInfo(p.label, p.info); });
+    t1.appendChild(q);
+  }
   var tag = el("span", "tag ok", "");
   tag.hidden = true;
   t1.appendChild(tag);
@@ -556,6 +696,60 @@ function headRow(p) {
   row._tag = tag;
   return row;
 }
+
+// ---------- info modal ----------
+// One reusable overlay, pre-placed in the markup. The old version built it
+// on demand with a plain text dump; the rewrite renders a lead conclusion
+// plus bullet points and -- critically -- closes for real (see the
+// .info-ov[hidden] rule; without it the closed sheet swallowed every tap).
+// Body copy format: first line = conclusion, following lines = points,
+// **text** = emphasis. No library, no build step.
+function openInfo(title, body) {
+  var ov = document.getElementById("infoOverlay");
+  if (!ov) return;
+  ov.querySelector(".info-t").textContent = title;
+  var b = ov.querySelector(".info-b");
+  b.textContent = "";
+  var lines = String(body == null ? "" : body).split("\n");
+  var lead = el("p", "info-lead");
+  lead.innerHTML = fmtRich(lines.shift() || "");
+  b.appendChild(lead);
+  if (lines.length) {
+    var ul = el("ul", "info-list");
+    lines.forEach(function (ln) {
+      if (!ln.trim()) return;
+      var li = el("li");
+      li.innerHTML = fmtRich(ln.trim());
+      ul.appendChild(li);
+    });
+    if (ul.children.length) b.appendChild(ul);
+  }
+  ov.hidden = false;
+  requestAnimationFrame(function () { ov.classList.add("show"); });
+  document.body.style.overflow = "hidden";
+}
+function closeInfo() {
+  var ov = document.getElementById("infoOverlay");
+  if (!ov) return;
+  ov.classList.remove("show");
+  document.body.style.overflow = "";
+  setTimeout(function () { ov.hidden = true; }, 260);
+}
+// Escape everything first, then allow **bold** -- nothing else passes through.
+function fmtRich(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+}
+(function () {
+  var ov = document.getElementById("infoOverlay");
+  if (!ov) return;
+  ov.addEventListener("click", function (e) { if (e.target === ov) closeInfo(); });
+  var x = ov.querySelector(".info-x");
+  if (x) x.addEventListener("click", closeInfo);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !ov.hidden) closeInfo();
+  });
+})();
 
 function buildNum(p) {
   var row = headRow(p);
@@ -626,13 +820,21 @@ function commit(row, value) {
     } else {
       markRow(row, "ok", "已生效");
     }
-    refresh(300);
+    refresh(300, "full");
   });
 }
 
 function restore(row) {
   var v = SNAP[row._p.live];
   if (v !== undefined && v !== "" && row._input) row._input.value = fmtNum(v);
+}
+
+// Conditional text write: assigning textContent on every snapshot invalidates
+// layout even when the string is identical, and the refresh loop runs every
+// few seconds forever -- only real changes should touch the DOM.
+function setText(id, text) {
+  var n = document.getElementById(id);
+  if (n && n.textContent !== text) n.textContent = text;
 }
 
 function buildSel(p) {
@@ -694,7 +896,12 @@ var VERDICTS = {
   off:      { cls: "",     title: "已关闭",     desc: "参数已还原为出厂值。" },
   disabled: { cls: "bad",  title: "模块已禁用", desc: "请在 KernelSU 管理器中启用本模块。" },
   dead:     { cls: "bad",  title: "守护未运行", desc: "守护进程不在，频率将被系统逐步压回。" },
-  nocpu:    { cls: "warn", title: "上限未生效", desc: "实际上限低于设定值，正在被系统调整。" }
+  nocpu:    { cls: "warn", title: "上限未生效", desc: "实际上限低于设定值，正在被系统调整。" },
+  // The spoof blinds exactly the sensors the module's own tripwire reads, so
+  // the chip side of the protection story is off while it is on.  That has to
+  // be visible without opening the thermal tab, otherwise the top of the page
+  // keeps saying "running normally" about a device whose chip is unobserved.
+  spoofed:  { cls: "warn", title: "保护降级中", desc: "温度伪装已开启：芯片绊线停摆，只剩机身绊线与硬件温区。" }
 };
 
 function setVerdict(key, override) {
@@ -721,25 +928,24 @@ function render(d) {
   buildProfiles();
   markProfile({ "省电":"省电", "均衡":"均衡", "性能":"性能", "极限":"极限" }[d.profile] || "极限");
 
-  document.getElementById("ver").textContent = d.version || "";
+  setText("ver", d.version || "");
   var up = d.state === "on";
   document.getElementById("swMaster").checked = up;
 
   // live tiles
   var c0 = parseInt(d.cur0, 10), c6 = parseInt(d.cur6, 10);
-  document.getElementById("kCpu").textContent =
-    (isNaN(c0) ? "-" : (c0 / 1000000).toFixed(2)) + "/" + (isNaN(c6) ? "-" : (c6 / 1000000).toFixed(2));
-  document.getElementById("kGpu").textContent = (d.gpu || "-") + "M";
+  setText("kCpu", (isNaN(c0) ? "-" : (c0 / 1000000).toFixed(2)) + "/" + (isNaN(c6) ? "-" : (c6 / 1000000).toFixed(2)));
+  setText("kGpu", (d.gpu || "-") + "M");
   // The tile shows silicon junction -- the number that decides whether the
   // module is being kind to the chip.  The chassis number lives on the
   // thermal tab next to its own threshold.
   var th = parseInt(d.t_hot, 10);
-  var tempEl = document.getElementById("kTemp");
-  tempEl.textContent = isNaN(th) ? "-" : th + "\u00b0";
+  setText("kTemp", isNaN(th) ? "-" : th + "\u00b0");
   var tTile = document.getElementById("tTile");
-  tTile.className = "tile" + (th >= 100 ? " bad" : (th >= 90 ? " hot" : ""));
+  var tcls = "tile" + (th >= 100 ? " bad" : (th >= 90 ? " hot" : ""));
+  if (tTile.className !== tcls) tTile.className = tcls;
   var av = parseInt(d.memavail, 10);
-  document.getElementById("kMem").textContent = isNaN(av) ? "-" : (av / 1048576).toFixed(1) + "G";
+  setText("kMem", isNaN(av) ? "-" : (av / 1048576).toFixed(1) + "G");
 
   // verdict
   var tripC = parseInt(d.trip_c, 10) || 105;
@@ -751,8 +957,16 @@ function render(d) {
   else if (String(d.hold || "").indexOf("tripped") === 0) setVerdict("tripped");
   else if (String(d.hold || "").indexOf("backoff") === 0)
     setVerdict("hot", "已降档运行（" + String(d.hold).split(" ")[1] + "），温度回落会自动升回。");
+  // Order matters: a spoofed device can still be approaching a tripwire on the
+  // chassis side, and that warning is more actionable than the degradation
+  // notice, so the temperature checks come first.  The spoof branch only
+  // labels the otherwise-calm case.
   else if (!isNaN(th) && th >= tripC - 8) setVerdict("hot", "芯片 " + th + " °C，绊线 " + tripC + " °C。");
   else if (!isNaN(ts) && ts >= tripS - 4) setVerdict("hot", "机身 " + ts + " °C，绊线 " + tripS + " °C。");
+  // status.sh emits off / lock / normal / max -- never "on".  Comparing
+  // against "on" made this branch dead: a device with 28 zones pinned at
+  // 25 °C still showed "正常运行".
+  else if (d.spoof && d.spoof !== "off" && d.spoof !== "-") setVerdict("spoofed");
   else if (d.guard === "down") setVerdict("dead");
   else {
     var t0 = parseInt(d.max0, 10), t6 = parseInt(d.max6, 10);
@@ -787,86 +1001,153 @@ function render(d) {
   var zonesTotal = zonesOff + zonesOn;
   var zonesDisabled = zonesOff > zonesOn;
   document.getElementById("swZones").checked = zonesDisabled;
-  document.getElementById("zoneSub").textContent =
-    "已停用 " + zonesOff + " / " + zonesTotal + " 个温区";
-  document.getElementById("zoneNote").textContent = zonesDisabled
+  setText("zoneSub", "已停用 " + zonesOff + " / " + zonesTotal + " 个温区");
+  setText("zoneNote", zonesDisabled
     ? "计算温区已停用，内核不再因这些读数降频。电池、充电、BCL 电流与 PMIC 结温仍全部保留。"
-    : "计算温区已恢复，系统按自身曲线降频。";
+    : "计算温区已恢复，系统按自身曲线降频。");
+
+  // Spoof tier reflects the live state, not just the mode file: control.sh
+  // reports off / lock / normal / max and the count it actually reaches.
+  var tier = String(d.spoof || "off");
+  if (["off", "lock", "normal", "max"].indexOf(tier) < 0) tier = "off";
+  var spoofN = parseInt(d.spoof_n, 10) || 0;
+  var spoofCap = parseInt(d.spoof_cap, 10) || 0;
+  var ovLocked = String(d.override || "").indexOf("true") !== -1;
+  var seg = document.getElementById("spoofSeg");
+  if (seg) {
+    // The kernel-governed preset cannot carry an emul tier at all -- apply.sh
+    // degrades it to lock -- so offering normal/max there would be a lie.
+    // Strictly "kernel": a missing/empty zones key (older module on
+    // device) must NOT enable the kernel restrictions, because disabling
+    // the emul buttons on a module that does support them is worse than
+    // offering them to a kernel-governed preset for one refresh.
+    var kernelPreset = d.zones === "kernel";
+    for (var si = 0; si < seg.children.length; si++) {
+      var btn = seg.children[si];
+      var on = btn.getAttribute("data-tier") === tier;
+      // DOM property writes only when the value actually flips: setting the
+      // same attribute every snapshot is style-invalidating busywork.
+      if (btn.getAttribute("aria-checked") !== (on ? "true" : "false")) btn.setAttribute("aria-checked", on ? "true" : "false");
+      var isEmul = btn.getAttribute("data-tier") === "normal" || btn.getAttribute("data-tier") === "max";
+      var dis = kernelPreset && isEmul;
+      if (btn.disabled !== dis) {
+        btn.disabled = dis;
+        btn.title = dis ? "省电档把温控交还内核，只能选关闭或仅框架锁" : "";
+      }
+    }
+  }
+  var subText;
+  if (tier === "lock") {
+    subText = "仅框架锁 · 不损失任何传感器读数 · 框架锁" + (ovLocked ? "已上" : "未上");
+  } else if (tier === "normal" || tier === "max") {
+    subText = "生效中 " + spoofN + " / " + spoofCap + " 个温区 · 芯片绊线" +
+      (tier === "max" ? "仅剩 PMIC" : "部分有效") + " · 框架锁" + (ovLocked ? "已上" : "未上");
+  } else {
+    subText = "未启用";
+  }
+  var subEl = document.getElementById("spoofSub");
+  if (subEl.textContent !== subText) subEl.textContent = subText;
 
   // trip steppers follow the snapshot unless the user is editing them
   TRIP_ROWS.forEach(function (row) { if (row._redraw) row._redraw(); });
 
   // temperatures
-  document.getElementById("tmaxVal").textContent = isNaN(th) ? "-" : th + " \u00b0C";
-  document.getElementById("tmaxSub").textContent =
-    "芯片最高 · 机身 " + (isNaN(ts) ? "-" : ts) + "\u00b0 · 电池 " + (d.t_batt || "-") + "\u00b0";
+  // -1 is control.sh's "not observable" marker: while the emul layer is on,
+  // every zone in the CPU and GPU clusters reads the spoofed value, so those
+  // two fields have no real reading to publish.  Rendering the marker as a
+  // dash keeps it from ever appearing as "-1 °C".
+  var showT = function (v) { var n = parseInt(v, 10); return (isNaN(n) || n < 0) ? "\u2014" : n; };
+  setText("tmaxVal", isNaN(th) ? "-" : th + " \u00b0C");
+  setText("tmaxSub", "芯片最高 · 机身 " + (isNaN(ts) ? "-" : ts) + "\u00b0 · 电池 " + showT(d.t_batt) + "\u00b0");
 
   var tc = document.getElementById("tempCard");
   if (tc) {
-    tc.textContent = "";
-    [
+    updateValCard(tc, [
       ["芯片最高", d.t_hot, "\u00b0C"],
       ["机身最高", d.t_skin, "\u00b0C"],
       ["电池", d.t_batt, "\u00b0C"],
       ["芯片绊线", tripC, "\u00b0C"],
       ["机身绊线", tripS, "\u00b0C"]
-    ].forEach(function (r) {
-      var row = el("div", "row");
-      var txt = el("div", "txt");
-      txt.appendChild(el("div", "t1", r[0]));
-      row.appendChild(txt);
-      row.appendChild(el("div", "val", (r[1] === undefined ? "-" : r[1]) + " " + r[2]));
-      tc.appendChild(row);
-    });
+    ]);
   }
 
   // memory live
   var ml = document.getElementById("memLive");
   if (ml) {
-    ml.textContent = "";
-    [
+    updateValCard(ml, [
       ["空闲", d.memfree ? Math.round(d.memfree / 1024) + " MB" : "-"],
       ["可用", av ? Math.round(av / 1024) + " MB" : "-"],
       ["CMA 空闲", d.cmafree ? Math.round(d.cmafree / 1024) + " MB" : "-"]
-    ].forEach(function (r) {
-      var row = el("div", "row");
-      var txt = el("div", "txt");
-      txt.appendChild(el("div", "t1", r[0]));
-      row.appendChild(txt);
-      row.appendChild(el("div", "val", r[1]));
-      ml.appendChild(row);
-    });
+    ]);
   }
 
   // runtime card
   var rc = document.getElementById("runCard");
   if (rc) {
-    rc.textContent = "";
-    [
+    updateValCard(rc, [
       ["状态", d.state === "on" ? "已开启" : (d.state === "off" ? "已关闭" : "被禁用")],
       ["守护进程", d.guard === "down" ? "已停止" : "运行中 (pid " + d.guard + ")"],
       ["mi_thermald", d.thermald === "running" ? "运行中" : "已停止"],
       ["调度器", d.gov || "-"],
       ["温区", (zonesOff + " / " + zonesTotal) + " 已停用"],
       ["GPU 热限档", d.tp === undefined ? "-" : ("thermal_pwrlevel = " + d.tp)],
-      ["GPU 硬顶", d.gpu_hw ? (parseInt(d.gpu_hw, 10) / 1000000) + " MHz" : "-"]
-    ].forEach(function (r) {
-      var row = el("div", "row");
-      var txt = el("div", "txt");
-      txt.appendChild(el("div", "t1", r[0]));
-      row.appendChild(txt);
-      row.appendChild(el("div", "val", r[1]));
-      rc.appendChild(row);
-    });
+      ["GPU 硬顶", d.gpu_hw ? (parseInt(d.gpu_hw, 10) / 1000000) + " MHz" : "-"],
+      // dev diagnostics surfaced from the guard's own state files (d_* keys),
+      // so a trip decision can be checked against the UI without adb.
+      // .stage holds the staged ceiling (two frequencies), not an ordinal:
+      // the guard writes "$NA $NB" (guard.sh:403/443/483).
+      ["降档目标", (d.p_stage === undefined || d.p_stage === "-") ? "无" : d.p_stage.split(" ").map(function (x) { return (parseInt(x, 10) / 1000).toFixed(2); }).join(" / ") + " GHz"],
+      ["温度绊线", d.d_trip ? d.d_trip.replace(" ", " / ") + " mC" : "-"],
+      ["伪装档位", d.d_spoof_tier || "-"]
+    ]);
   }
 }
 
+// ---------- incremental list cards ----------
+// tempCard / memLive / runCard were cleared and rebuilt from 3-10 DOM rows on
+// every snapshot. Only the value text ever changes: keep the rows and swap
+// the .val text node, so a refresh moves no layout node at all.
+function updateValCard(host, rows) {
+  if (host._rows === undefined) {
+    host._rows = [];
+    host.textContent = "";
+  }
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var row = host._rows[i];
+    if (!row) {
+      row = el("div", "row");
+      var txt = el("div", "txt");
+      txt.appendChild(el("div", "t1", r[0]));
+      row.appendChild(txt);
+      row.appendChild(el("div", "val"));
+      row._val = row.querySelector(".val");
+      host.appendChild(row);
+      host._rows[i] = row;
+    }
+    var text = r.length > 1 ? ((r[1] === undefined || r[1] === "" ? "-" : r[1]) + (r[2] ? " " + r[2] : "")) : r[1];
+    if (row._val && row._val.textContent !== text) row._val.textContent = text;
+  }
+  for (var j = rows.length; j < host._rows.length; j++) host._rows[j].hidden = true;
+}
+
 // ---------- refresh loop ----------
+// Adaptive cadence.  A fixed three-second timer spends a growing share of the
+// page's time waiting on a shell that costs 140-560 ms depending on the
+// device's load: on a busy box the poll lands before the previous snapshot
+// has finished and the UI feels stuck.  The next poll is scheduled from when
+// the last one STARTED, not from when it finished, and a slow sample drops
+// the cadence instead of stacking up.
 var refreshing = false;
 var refreshT = null;
 var tickMs = 3000;
+var slowTicks = 0;
+// Which snapshot the NEXT poll pulls: "light" (default) in steady state,
+// switched to "full" by every write path so the sliders re-sync once.
+var pollMode = "full";
 
-function refresh(delay) {
+function refresh(delay, mode) {
+  if (mode) pollMode = mode;
   clearTimeout(refreshT);
   refreshT = setTimeout(doRefresh, delay || 0);
 }
@@ -875,14 +1156,31 @@ function doRefresh() {
   if (refreshing) { refresh(tickMs); return; }
   if (document.hidden) { refresh(tickMs); return; }
   refreshing = true;
-  snapshot().then(function (r) {
+  var started = Date.now();
+  // Steady-state polls run the light snapshot; the slider block is only
+  // needed after a write or on the first paint, and both of those paths call
+  // refresh(delay, "full") explicitly.
+  snapshot(pollMode).then(function (r) {
+    pollMode = "light";
     refreshing = false;
+    var took = Date.now() - started;
     if (!r.ok) {
       setVerdict("dead", r.err || "读取状态失败");
+      tickMs = 6000;
       refresh(6000);
       return;
     }
     try { render(r.data); } catch (e) { /* never let a render error stop the loop */ }
+    // Two consecutive slow samples mean the shell is the bottleneck, not the
+    // device: back off to five seconds so the page stops competing with the
+    // work it is trying to observe.  One fast sample brings it back.
+    if (took > 900) {
+      slowTicks++;
+      if (slowTicks >= 2) tickMs = 5000;
+    } else {
+      slowTicks = 0;
+      if (tickMs > 3000) tickMs = 3000;
+    }
     refresh(tickMs);
   });
 }
@@ -945,8 +1243,12 @@ var PROFILES = [
 // built-in PROFILES stay as the fallback: an older control.sh that has no
 // presets command, or a failed exec, must not blank the buttons.
 function refreshProfiles() {
-  try {
-    var out = exec("presets");
+  // The presets pull is async: ksuExec resolves through the KSU bridge and
+  // buildProfiles re-renders on arrival.  The previous code called an
+  // undefined exec() -- the ReferenceError was swallowed by this very
+  // try/catch and the UI silently kept the hardcoded labels forever.
+  ksuExec("sh " + CTL + " presets", 8000).then(function (r) {
+    var out = (r && r.stdout) || "";
     if (!out || out.indexOf("|") < 0) return;
     var rows = out.trim().split(/\r?\n/);
     rows.forEach(function (line) {
@@ -960,14 +1262,30 @@ function refreshProfiles() {
       var mhz = Math.round(Number(p[5]) / 1000000).toString();
       t.d = ghz + "G · " + mhz;
     });
-  } catch (e) {}
+    buildProfiles();
+  }, function () { /* bridge failure: keep built-in labels */ });
 }
 
 var profBusy = false;
+var _profSig = "";
+var _profBuilt = false;
 function buildProfiles() {
+  // Rebuild ONLY when the profile data actually changed: render() calls this
+  // every snapshot, and a blind rebuild replaced the buttons under the
+  // user's finger -- taps landed on a node that was detached microseconds
+  // later (the "nothing in the UI is clickable" regression, 2026-10-22).
+  // Signature check: built once at load, rebuilt once when the real preset
+  // table arrives, untouched otherwise. The common path (nothing changed)
+  // is the one render() hits every snapshot: bail before building the
+  // signature string at all.
+  if (_profBuilt && _profSig === null) return;
+  var sig = PROFILES.map(function (p) { return p.k + "\u0001" + p.n + "\u0001" + p.d; }).join("\u0002");
+  if (sig === _profSig) { _profBuilt = true; return; }
+  _profSig = sig;
+  _profBuilt = true;
   var row = document.getElementById("profRow");
-  if (!row || row._built) return;
-  row._built = true;
+  if (!row) return;
+  while (row.firstChild) row.removeChild(row.firstChild);
   PROFILES.forEach(function (p) {
     var b = document.createElement("button");
     b.setAttribute("data-k", p.k);
@@ -1005,7 +1323,7 @@ function pickProfile(key, label, btn) {
     }
     toast("已切换到" + label, false);
     markProfile(label);
-    refresh(500);
+    refresh(500, "full");
   });
 }
 
@@ -1058,7 +1376,7 @@ document.getElementById("swMaster").addEventListener("change", function (e) {
     }
     document.getElementById("swDesc").textContent = want ? "已应用到设备" : "已还原出厂值";
     toast(want ? "已开启" : "已关闭，参数已还原为出厂值", false);
-    refresh(600);
+    refresh(600, "full");
   });
 });
 
@@ -1070,9 +1388,38 @@ document.getElementById("swZones").addEventListener("change", function (e) {
     e.target.disabled = false;
     if (!res.ok) { toast(res.msg, true); e.target.checked = !on; return; }
     toast(on ? "软温控已由本模块接管" : "软温控已交还系统", false);
-    refresh(900);
+    refresh(900, "full");
   });
 });
+
+// ---------- temperature spoof tier ----------
+// One button per tier.  The tiers are not interchangeable settings: they differ
+// in how many sensors stop reporting the truth, so the control says which one
+// is active instead of hiding the choice behind a checkbox.
+var TIER_TOAST = {
+  off:    "温度伪装已关闭，全部温区恢复真实读数",
+  lock:   "仅框架锁：系统看到热状态正常，内核温控不受影响",
+  normal: "普通伪装：CPU 与 GPU 共 28 个温区读 25°C，其余保持真实",
+  max:    "极致伪装：49 个计算温区全部读 25°C，芯片绊线只剩 PMIC"
+};
+(function () {
+  var seg = document.getElementById("spoofSeg");
+  if (!seg) return;
+  seg.addEventListener("click", function (e) {
+    var btn = e.target;
+    while (btn && btn !== seg && !btn.getAttribute("data-tier")) btn = btn.parentNode;
+    if (!btn || btn === seg || btn.disabled) return;
+    var tier = btn.getAttribute("data-tier");
+    var all = seg.querySelectorAll("button");
+    for (var i = 0; i < all.length; i++) all[i].disabled = true;
+    setValue("spoof", tier).then(function (res) {
+      for (var i = 0; i < all.length; i++) all[i].disabled = false;
+      if (!res.ok) { toast(res.msg, true); refresh(300); return; }
+      toast(TIER_TOAST[tier] || "已切换", tier === "max");
+      refresh(900, "full");
+    });
+  });
+})();
 
 // ---------- trip steppers ----------
 // Two independent thresholds: silicon junction and chassis surface.  Each is a
@@ -1093,7 +1440,7 @@ document.getElementById("swZones").addEventListener("change", function (e) {
     setValue(cfg.k, v * 1000).then(function (res) {
       if (!res.ok) { toast(res.msg, true); redraw(); return; }
       toast(cfg.label + "已设为 " + v + " °C", false);
-      refresh(400);
+      refresh(400, "full");
     });
   }
 
@@ -1124,26 +1471,111 @@ document.getElementById("swZones").addEventListener("change", function (e) {
 });
 
 // ---------- actions ----------
+// ---------- log viewer ----------
+// 200 lines, level filter, optional live tail. The module log now carries
+// a parseable shape (alive/launcher pin/ui-action/trip/... prefixes), so
+// the viewer can slice it without touching the shell side.
+var LOG_FILTERS = [
+  { k: "all",    label: "全部",   re: null },
+  { k: "action", label: "操作",   re: /ui-action|target set|governor set/ },
+  { k: "trip",   label: "降档",   re: /trip\(|recover|back-off|re-arm/ },
+  { k: "spoof",  label: "伪装",   re: /spoof/ },
+  { k: "warn",   label: "异常",   re: /LOST|failed|refused|outage|DEAD|stuck|rc=1/i }
+];
+var logFilter = "all";
+var logLive = false;
+var logTimer = null;
+
+function renderLog(text) {
+  var box = document.getElementById("logBox");
+  var f = LOG_FILTERS.find(function (x) { return x.k === logFilter; }) || LOG_FILTERS[0];
+  var lines = (text || "").split("\n");
+  if (f.re) lines = lines.filter(function (l) { return f.re.test(l); });
+  box.textContent = lines.length ? lines.join("\n") : "(该过滤条件下没有日志行)";
+  box.scrollTop = box.scrollHeight;
+}
+
+function pullLog() {
+  ksuExec("tail -n 200 " + MOD + "/pianomax.log 2>/dev/null", 8000).then(function (r) {
+    renderLog((r.stdout || "").trim());
+  });
+}
+
+function buildLogFilters() {
+  var bar = document.getElementById("logFilterBar");
+  if (!bar || bar._built) return;
+  bar._built = true;
+  LOG_FILTERS.forEach(function (f) {
+    var b = el("button", "logchip", f.label);
+    b.type = "button";
+    b.setAttribute("data-k", f.k);
+    b.addEventListener("click", function () {
+      logFilter = f.k;
+      bar.querySelectorAll(".logchip").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      pullLog();
+    });
+    bar.appendChild(b);
+  });
+  var live = el("button", "logchip", "实时");
+  live.type = "button";
+  live.setAttribute("aria-pressed", "false");
+  live.addEventListener("click", function () {
+    logLive = !logLive;
+    live.setAttribute("aria-pressed", logLive ? "true" : "false");
+    if (logLive) { pullLog(); logTimer = setInterval(pullLog, 2000); }
+    else clearInterval(logTimer);
+  });
+  bar.appendChild(live);
+}
+
 document.getElementById("btnLog").addEventListener("click", function () {
   var box = document.getElementById("logBox");
-  if (!box.hidden) { box.hidden = true; return; }
-  ksuExec("tail -n 40 " + MOD + "/pianomax.log 2>/dev/null", 8000).then(function (r) {
-    box.textContent = (r.stdout || "").trim() || "(日志为空)";
-    box.hidden = false;
-  });
+  if (!box.hidden) {
+    box.hidden = true;
+    document.getElementById("logFilterBar").hidden = true;
+    if (logLive) { logLive = false; clearInterval(logTimer); }
+    return;
+  }
+  buildLogFilters();
+  pullLog();
+  box.hidden = false;
+  document.getElementById("logFilterBar").hidden = false;
 });
 
-document.getElementById("btnRestore").addEventListener("click", function () {
-  if (!confirm("将全部参数还原为出厂值？模块将切换到关闭状态。")) return;
-  ksuExec("sh " + CTL + " restore", 20000).then(function (r) {
-    if (r.errno !== 0) {
-      toast((r.stderr || "还原失败").slice(0, 60), true);
-    } else {
-      toast("已还原出厂值", false);
+// Restore needs a confirmation, but window.confirm depends on the embedded
+// WebView implementing onJsConfirm -- if the manager swallows it the button
+// would be a silent dead zone. Inline two-tap arming instead: first tap arms
+// (visual + text change), tapping again within 3 s runs the restore.
+(function () {
+  var btn = document.getElementById("btnRestore");
+  var armed = false, armT = null;
+  function disarm() {
+    armed = false;
+    clearTimeout(armT);
+    btn.textContent = "还原全部出厂值";
+    btn.classList.remove("danger-arm");
+  }
+  btn.addEventListener("click", function () {
+    if (!armed) {
+      armed = true;
+      btn.textContent = "再点一次确认还原";
+      btn.classList.add("danger-arm");
+      armT = setTimeout(disarm, 3000);
+      return;
     }
-    refresh(900);
+    disarm();
+    btn.disabled = true;
+    ksuExec("sh " + CTL + " restore", 20000).then(function (r) {
+      btn.disabled = false;
+      if (r.errno !== 0) {
+        toast((r.stderr || "还原失败").slice(0, 60), true);
+      } else {
+        toast("已还原出厂值", false);
+      }
+      refresh(900);
+    });
   });
-});
+})();
 
 // ---------- tabs ----------
 document.querySelectorAll("nav button").forEach(function (b) {
@@ -1152,11 +1584,14 @@ document.querySelectorAll("nav button").forEach(function (b) {
       x.setAttribute("aria-selected", "false");
       x.classList.remove("on");
     });
-    document.querySelectorAll("section").forEach(function (x) { x.classList.remove("on"); });
+    document.querySelectorAll("section").forEach(function (x) {
+      x.classList.remove("on");
+      x.hidden = true;
+    });
     b.setAttribute("aria-selected", "true");
     b.classList.add("on");
     var target = document.getElementById(b.getAttribute("data-p"));
-    if (target) target.classList.add("on");
+    if (target) { target.hidden = false; target.classList.add("on"); }
   });
 });
 

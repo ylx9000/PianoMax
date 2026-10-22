@@ -7,3 +7,11 @@ release/*.zip
 .trip
 module/webroot/_*
 .research/
+
+# Review notes and design drafts are working documents, not part of the
+# shipped module.  They quote third-party project names while discussing
+# originality checks, so they must never reach the published history.
+HANDOFF-*.md
+*-DESIGN-*.md
+*.review.md
+AUDIT-*.md

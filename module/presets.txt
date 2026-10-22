@@ -1,6 +1,6 @@
 # PianoMax preset table.  Single source of truth: profile.sh reads this on
 # the device, the WebUI gets the same values through control.sh, and
-# build.mjs refuses to ship when this file and the WebUI disagree.
+# build.mjs validates this file on its own (rows, columns, ranges); it does not read the WebUI.
 # Columns are tab separated; a missing column breaks the module loudly
 # rather than silently.
 # key        name  cpu0     cpu6     gpu  ddr      llcc    tripC tripS zones

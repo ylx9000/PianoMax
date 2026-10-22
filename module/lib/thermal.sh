@@ -11,10 +11,10 @@
 # job for us.
 
 # common.sh is normally already loaded by whoever called us (every entry
-# point sources it first).  The fallback covers a direct call from the
-# module root: this file lives in lib/, so the shared helpers are one
-# directory down from $0.
-[ -n "${PM_DIR:-}" ] || . "$(dirname "$0")/lib/common.sh"
+# point sources it first).  The fallback covers a direct call: this file
+# lives in lib/ next to common.sh, so the helper is a sibling, not a
+# subdirectory -- "$0"'s own directory is already lib/.
+[ -n "${PM_DIR:-}" ] || . "$(dirname "$0")/common.sh"
 
 # Where the vendor daemon looks for overrides.  init creates this directory
 # (0771, root:system) at post-fs-data; anything placed here outranks
@@ -38,6 +38,21 @@ pm_stat_sig() {
     stat -c "%y:%s" "$1" 2>/dev/null
 }
 
+# The vendor's own table lives in /odm/etc, not in the writable override
+# directory: /data/vendor/thermal/config is where overrides are *placed*, so
+# whatever sits there may already be ours.  Capturing from the override
+# directory alone is therefore circular -- on any boot after a swap it would
+# snapshot our own table and call it the vendor's, and revert would then
+# faithfully restore the thing it was supposed to undo.  That is exactly what
+# happened before this comment existed: .thermal_orig held a copy of the
+# extreme table (md5 76562364...) while the real vendor table (/odm/etc,
+# 1e55b6a3...) was never touched.
+#
+# Order of preference, per file:
+#   1. /odm/etc/<name>        -- the shipped table, immutable and always real
+#   2. T_DIR/<name>           -- only when the ROM keeps it nowhere else
+#   3. absent                 -- recorded as such so revert deletes our copy
+T_VENDOR=/odm/etc
 pm_thermal_capture() {
     [ -d "$T_DIR" ] || { pm_log "thermal: no config dir, table swap unavailable"; return 1; }
     # A marker without a populated snapshot is worse than no marker: the
@@ -51,9 +66,27 @@ pm_thermal_capture() {
     fi
     mkdir -p "$PM_DIR/.thermal_orig" || return 1
     n=0
+    # Seed from the immutable vendor copy first, then fill in anything the
+    # override directory has that /odm/etc does not ship.
+    for f in "$T_VENDOR"/thermal*.conf; do
+        [ -f "$f" ] || continue
+        b=$(basename "$f")
+        cp "$f" "$PM_DIR/.thermal_orig/$b" 2>/dev/null && n=$((n + 1))
+    done
     for f in "$T_DIR"/*; do
         [ -f "$f" ] || continue
-        cp "$f" "$PM_DIR/.thermal_orig/$(basename "$f")" 2>/dev/null && n=$((n + 1))
+        b=$(basename "$f")
+        # Already captured from the vendor tree: that copy is authoritative.
+        [ -f "$PM_DIR/.thermal_orig/$b" ] && continue
+        # Skip anything that is byte-identical to one of our own preset
+        # tables -- that is not a vendor table, whatever directory it is in.
+        h=$(md5sum "$f" 2>/dev/null | cut -d' ' -f1)
+        [ -n "$h" ] || continue
+        grep -q "$h" "$T_SRC"/*/*.conf 2>/dev/null && {
+            pm_log "thermal: skipped our own table in $b during capture"
+            continue
+        }
+        cp "$f" "$PM_DIR/.thermal_orig/$b" 2>/dev/null && n=$((n + 1))
     done
     # Permissions and context belong to the snapshot too: a restore that
     # brings back content but loses ownership would leave the daemon
@@ -80,16 +113,23 @@ pm_thermal_swap() {
     # feels like it.  An immutable bit survives even root writes; take it
     # off first or our own copies land half-way.
     chattr -R -i "$T_DIR" 2>/dev/null
+    cp_ok=1
     for f in "$T_SRC/$mode"/*.conf; do
         [ -f "$f" ] || continue
-        cp "$f" "$T_DIR/$(basename "$f")"
+        # An unchecked cp here installed an empty target on a failed copy and
+        # the stamp below still recorded the mode -- the guard then trusted
+        # TABLE_IN_CHARGE and stopped re-pinning on a table that was never
+        # written.  Verify each copy byte-count before stamping.
+        cp "$f" "$T_DIR/$(basename "$f")" || { cp_ok=0; break; }
+        [ "$(wc -c < "$T_DIR/$(basename "$f")" 2>/dev/null)" = "$(wc -c < "$f")" ] || { cp_ok=0; break; }
         chmod 444 "$T_DIR/$(basename "$f")" 2>/dev/null
         chown root:system "$T_DIR/$(basename "$f")" 2>/dev/null
     done
+    if [ "$cp_ok" != "1" ]; then
+        pm_log "thermal: swap copy failed for $mode, stamp NOT written, keeping previous table"
+        return 1
+    fi
     echo "$mode" > "$T_STAMP"
-    # Re-arm immutability after our own writes so the cloud cannot eat the
-    # table ten minutes later.
-    chattr +i "$T_DIR"/*.conf 2>/dev/null
     restorecon -DFR "$T_DIR" 2>/dev/null
     # Policy vacuum is 1-2 s while the daemon re-reads; acceptable at preset
     # switch, and the guard re-pins the ceiling as soon as it is back.
@@ -126,12 +166,38 @@ pm_thermal_revert() {
         return 1
     fi
     chattr -R -i "$T_DIR" 2>/dev/null
+    # A snapshot entry that is byte-identical to one of our own preset tables
+    # is contamination from before this check existed, not a vendor table.
+    # Restoring it would put our policy back and call it a revert, so it is
+    # dropped here and the file is removed from T_DIR below instead.
+    _restored=0
     for f in "$PM_DIR/.thermal_orig"/*; do
         [ -f "$f" ] || continue
-        cp "$f" "$T_DIR/$(basename "$f")"
-        chmod 444 "$T_DIR/$(basename "$f")" 2>/dev/null
-        chown root:system "$T_DIR/$(basename "$f")" 2>/dev/null
+        b=$(basename "$f")
+        h=$(md5sum "$f" 2>/dev/null | cut -d' ' -f1)
+        if [ -n "$h" ] && grep -q "$h" "$T_SRC"/*/*.conf 2>/dev/null; then
+            pm_log "thermal: dropping contaminated snapshot entry $b"
+            rm -f "$f"
+            continue
+        fi
+        cp "$f" "$T_DIR/$b"
+        chmod 444 "$T_DIR/$b" 2>/dev/null
+        chown root:system "$T_DIR/$b" 2>/dev/null
+        _restored=$((_restored + 1))
     done
+    # If the vendor tree still has the real table, put it back directly --
+    # that is the recovery path for an already-poisoned snapshot.
+    if [ "$_restored" -eq 0 ]; then
+        for f in "$T_VENDOR"/thermal*.conf; do
+            [ -f "$f" ] || continue
+            b=$(basename "$f")
+            cp "$f" "$T_DIR/$b" 2>/dev/null || continue
+            chmod 444 "$T_DIR/$b" 2>/dev/null
+            chown root:system "$T_DIR/$b" 2>/dev/null
+            _restored=$((_restored + 1))
+        done
+        [ "$_restored" -gt 0 ] && pm_log "thermal: recovered $_restored table(s) from $T_VENDOR"
+    fi
     # A preset conf the vendor never shipped is not in the snapshot: removing
     # the snapshot files alone would leave it behind, and the daemon would
     # keep reading our policy after a "restore".  Delete every table that the
@@ -166,21 +232,31 @@ pm_thermal_revert() {
 # failed swap degrades to today's mechanics, never to something worse.
 pm_thermal_verify() {
     mode=$1; before=$2; polls=${3:-10}
+    # Poll in 0.25 s steps instead of sleeping a second per round: the
+    # daemon usually rewrites decrypt.txt within ~1-2 s of the restart, so
+    # the common case returns in a quarter of the old wall time and the
+    # worst case is unchanged (polls * 0.25 s).  read -t is the portable
+    # sub-second sleep on mksh; verified on this box (rc=1 on timeout).
     # No decrypt.txt at all: the ROM either moved it or never exposes it.
     # There is nothing to watch, so the swap is accepted on faith and the
     # guard remains the safety net.
     [ -f "$T_ROOT/decrypt.txt" ] || { pm_log "thermal: no decrypt.txt, swap accepted unverified"; return 0; }
     i=0
-    while [ "$i" -lt "$polls" ]; do
-        sleep 1
+    while [ "$i" -lt $((polls * 4)) ]; do
+        # mksh read -t needs an fd that can BLOCK.  /dev/null is always EOF
+        # (rc=0, instantly) so the whole loop burned through 40 polls in ~3 ms
+        # and never observed a reload that lands 1-2 s after the restart --
+        # every "no reload detected" was an artifact (FIFO-verified
+        # 2026-10-22).  sleep 0.25 is a real sub-second wait on toybox.
+        sleep 0.25
         after=$(pm_stat_sig "$T_ROOT/decrypt.txt")
         if [ -n "$after" ] && [ "$after" != "$before" ]; then
-            pm_log "thermal: daemon reloaded (table $mode stamped)"
+            pm_log "thermal: daemon reloaded (table $mode stamped, after $((i + 1)) polls)"
             return 0
         fi
         i=$((i + 1))
     done
-    pm_log "thermal: no reload detected after restart ($mode stamped)"
+    pm_log "thermal: no reload detected after restart ($mode stamped, waited $((polls))s)"
     return 1
 }
 

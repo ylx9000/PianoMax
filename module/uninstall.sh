@@ -21,25 +21,20 @@ for p in /proc/[0-9]*; do
     esac
 done
 # restore.sh would run the full thermal revert including the daemon-reload
-# verify loop; uninstall only needs the vendor bytes back in place.  Copy
-# the snapshot directly and bounce the daemon once -- no polling, so the
-# uninstaller never sits in a 10 s wait against its own no-block rule.
+# verify loop; uninstall only needs the vendor bytes back in place.
+#
+# This used to copy the snapshot straight across.  That path bypassed the
+# contamination checks pm_thermal_revert gained -- and uninstall is the worst
+# possible place for a poisoned snapshot to win, because the module tree is
+# about to be deleted and there is no later chance to fix it.  A device that
+# last ran a pre-fix build still carries a .thermal_orig holding our own
+# extreme table; copying it back would end the uninstall with the message
+# "factory values restored" and our table in charge.  Reuse the checked path
+# with no argument (pm_thermal_revert takes none) so the no-block rule survives (the revert's own comment
+# explains why 2 is enough for the delete-right-after case).
 if [ -d "$PM_DIR/.thermal_orig" ] && [ -n "$(ls "$PM_DIR/.thermal_orig" 2>/dev/null)" ]; then
     . "$PM_DIR/lib/thermal.sh"
-    chattr -R -i /data/vendor/thermal/config 2>/dev/null
-    for f in "$PM_DIR/.thermal_orig"/*; do
-        [ -f "$f" ] || continue
-        cp "$f" /data/vendor/thermal/config/$(basename "$f")
-    done
-    # A table of ours the vendor never shipped must not survive either:
-    # the snapshot names everything that was factory.
-    for f in /data/vendor/thermal/config/*.conf; do
-        [ -f "$f" ] || continue
-        [ -f "$PM_DIR/.thermal_orig/$(basename "$f")" ] || rm -f "$f"
-    done
-    rm -f "$PM_DIR/.thermal_mode" "$PM_DIR/.thermal_captured"
-    restorecon -DFR /data/vendor/thermal/config 2>/dev/null
-    setprop ctl.restart mi_thermald 2>/dev/null
+    pm_thermal_revert 2
 fi
 sh "$PM_DIR/restore.sh" >/dev/null 2>&1
 start mi_thermald 2>/dev/null
