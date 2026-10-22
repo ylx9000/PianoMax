@@ -9,18 +9,45 @@
 
 . "$(dirname "$0")/lib/common.sh"
 
+# The numbers below are piano's cpufreq ladder, sched values and bus votes.
+# On any other device this script would overwrite that machine's factory
+# scheduling with ours -- the single most destructive thing a mis-targeted
+# run can do.  profile.sh has had this gate; restore never did.
+[ "$(getprop ro.product.device)" = "piano" ] || { echo "unsupported device: $(getprop ro.product.device)"; exit 1; }
+
 # Any thermal back-off the guard had put in force is not part of "factory".
 # .state goes too: the guard rewrites it every tick while running, and a stale
 # snapshot left behind after a restore is exactly what the UI must not show.
 rm -f "$PM_STAGE" "$PM_TARGET" "$PM_STATE" "$PM_STATE.tmp" "$PM_DIR/.gov"
+# The spoof tier is a live switch, not a preset: leaving it behind would make
+# the next boot re-arm a spoof the user believed they had turned off by
+# restoring.  The override itself is released further down.
+rm -f "$PM_DIR/.spoof"
+
+# Release the framework thermal override BEFORE touching the zones.  Turning
+# the module off used to leave IsStatusOverride stuck at true while every zone
+# went back to reporting the truth -- the framework then believed the device
+# was permanently cool, which is exactly the one direction of the spoof that
+# must never stick.  Order matters: unlock first, clean second, so a crash
+# between the two leaves real sensors with a released lock rather than clean
+# sensors with a frozen status.
+cmd thermalservice reset >/dev/null 2>&1
 
 # Factory state means every zone enabled -- including ones the user or another
 # module disabled on purpose.  That is deliberate: "restore" is the baseline
 # the module promises, not a selective undo.
+# Count what the sweep actually changed.  This loop has been the source of
+# several "the spoof cleared itself" reports: it silently resets every zone and
+# used to leave only the words "restore done" behind, so a restore running in
+# the background looked exactly like the machinery failing.
+_rz=0
 for z in /sys/class/thermal/thermal_zone*; do
+    IFS= read -r _zv < "$z/temp" 2>/dev/null
+    [ "$_zv" = "25000" ] && _rz=$((_rz + 1))
     echo 0 > "$z/emul_temp" 2>/dev/null
     echo enabled > "$z/mode" 2>/dev/null
 done
+[ "$_rz" -gt 0 ] && echo "restore: cleared emulation on $_rz zone(s)"
 
 # Release the command channel so the stock daemon picks the policy again.
 echo -n "" > "$TM/cpu_limits" 2>/dev/null

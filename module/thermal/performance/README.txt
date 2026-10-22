@@ -1,11 +1,13 @@
 # Encrypted thermal table variant for the performance preset.
 #
-# PRODUCTION step (device required): dump the vendor tables from
-# /data/vendor/thermal/config, decrypt with the community-aes established table key,
-# relax only the cpu0/cpu6/cpu7 device ceilings to the preset values while
-# keeping charging, backlight, modem and temp_state segments byte-identical,
-# re-encrypt, and drop the .conf files here.  build.mjs packages whatever
-# lands in this directory; profile.sh installs it on preset switch.
+# Provenance: dumped from the vendor tree on OS3.0.309.0.WPYCNXM, decrypted
+# with the table key (AES-128-CBC, key = IV = "thermalopenssl.h"), relaxed on
+# the cpu0/cpu6/cpu7 device ceilings only -- charging, backlight, modem and
+# temp_state segments are byte-identical to the vendor table -- re-encrypted
+# and verified against a live daemon reload (decrypt.txt mtime moved; see
+# lib/thermal.sh pm_thermal_verify).  Shipped in this directory; profile.sh
+# installs it on preset switch, piano_diag.sh cross-checks the deployed bytes.
 #
-# EMPTY = the preset runs without a table swap and the guard keeps its
-# re-pin loop.  Both states are supported; nothing here is silently assumed.
+# EMPTY would mean the preset runs without a table swap and the guard keeps
+# its re-pin loop.  That state is still supported by the code paths, but this
+# directory is not empty and is not expected to be.

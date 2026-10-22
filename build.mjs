@@ -61,6 +61,44 @@ function walk(dir, rel) {
 
 const files = walk(modDir, "");
 
+// Regression lint.  A doubled dollar in a shell source is load-bearing
+// ($$ is the pid), and more than one editor pipeline has silently folded it
+// into a single dollar while saving -- which turns /proc/$$/cgroup into
+// /proc/$/cgroup, a path that does not exist, reads empty, and switches a
+// guard branch off without any visible symptom.  That exact corruption
+// shipped twice.  Fail the build instead of trusting the editor.
+{
+  const SHELL = /\.sh$/;
+  const bad = [];
+  for (const f of files) {
+    if (!SHELL.test(f.name)) continue;
+    const text = f.data.toString("utf8");
+    text.split(/\r?\n/).forEach((line, i) => {
+      // /proc/$/... is never valid: the pid expansion needs either a literal
+      // $$ or a named variable.  Same for "$/".
+      if (/\/proc\/\$\//.test(line)) bad.push(f.name + ":" + (i + 1) + ": " + line.trim());
+    });
+  }
+  if (bad.length) {
+    console.error("FATAL: a doubled dollar was folded to a single dollar (\$\$ -> \$) in:");
+    for (const b of bad) console.error("  " + b);
+    process.exit(1);
+  }
+}
+
+// Single-source lint.  The zone family has to come from PM_SILICON_ZONES and
+// the thresholds from PM_TRIP, or the copies drift: the silicon tripwire was
+// hardcoded in two places and covered 36 of the 57 zones the module disables,
+// leaving 22 sensors (ddr, camera, video, the DSP clusters) with their
+// governor switched off and nothing reading them.  A new hardcoded zone list
+// in a runtime script is the same bug waiting to happen.
+// Note on scope: a "no hardcoded zone family" lint was written here and
+// removed.  Three attempts in a row misread ordinary numeric lines -- CPU
+// index loops, u16 padding, bitfield rows -- and a check that cries wolf is
+// worse than no check.  The gap it was meant to catch is closed structurally
+// instead: the family lives in lib/common.sh and every consumer reads it from
+// there, including status.sh's cluster maxima.
+
 const table = (() => {
   const t = new Int32Array(256);
   for (let n = 0; n < 256; n++) {

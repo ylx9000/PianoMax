@@ -8,7 +8,9 @@ PianoMax is a frequency scaling module for KernelSU on the Xiaomi Pad 8 Pro (cod
 
 It raises the CPU, GPU, DDR and LLCC ceilings to the top bins published in the SoC specification, writes them through the `thermal_message/cpu_limits` command channel, and holds them with a daemon that loops every second. It also switches the compute thermal zones to `disabled` so the kernel stops throttling on those readings.
 
-It does **not** alter the truth of any temperature reading, does **not** stop `mi_thermald`, and does **not** touch the battery, charger, BCL current limit or PMIC junction protection paths.
+It does **not** stop `mi_thermald` and does **not** touch the battery, charger, BCL current limit or PMIC junction protection paths.
+
+Temperature spoofing is a **separate switch that ships off**, with four tiers (off / lock only / normal 28 zones / max 48 zones). The higher the tier, the more sensors stop reporting the truth: at Max the module's own chip tripwire is left with only the eight PMIC junctions plus the battery and has effectively lost its input, while Normal keeps 29 real readings and stays armed. Battery, charger, BCL, PMIC and chassis zones remain real on every tier, and hardware over-temperature protection stays armed. The full boundary, tier by tier, is in the README's "Temperature spoof" section — please read it before switching anything on.
 
 ## What that means
 
