@@ -30,7 +30,7 @@
 
 <div align="center">
 
-[![下载最新版](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-PianoMax.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.2/PianoMax-v1.0.0-beta.2.zip)
+[![下载最新版](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-PianoMax.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.3/PianoMax-v1.0.0-beta.3.zip)
 
 </div>
 
