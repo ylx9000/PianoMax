@@ -367,7 +367,7 @@ while true; do
     # ROM), so each gets its own dead counter: a skin-only outage must not
     # look healthy just because the silicon zones still answer.
     # A zero maximum is the obvious dead case, but with the emul layer on it can
-    # never happen: 49 of the 57 inputs are pinned at 25000, so even a total
+    # never happen: 48 of the 57 inputs are pinned at 25000, so even a total
     # PMIC outage still reports a healthy-looking peak.
     #
     # What is checked instead is how many inputs are NOT reading the spoofed

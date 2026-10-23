@@ -372,7 +372,7 @@ select{border:1px solid var(--line);background:var(--surface);color:var(--fg);fo
       <div class="note" id="spoofNote">把传感器读数报低来阻止系统降频，**四档按「蒙住多少传感器」分级，默认关闭**。
 <b>仅框架锁</b>：只把框架热状态锁为「正常」，内核温控不受影响，不损失任何真实读数——游戏内降画质判定走的是这一层。
 <b>普通</b>：额外把 CPU 与 GPU 簇共 28 个温区写成 25°C，DSP、存储、摄像头、视频与 PMIC 仍是真值。
-<b>极致</b>：49 个计算温区全部伪装，芯片绊线只剩 PMIC 8 区有效。
+<b>极致</b>：48 个计算温区全部伪装，芯片绊线只剩 PMIC 8 区有效。
 任何档位下，电池、充电、BCL、PMIC 结温（69–76）与机身绊线那 10 个温区（57/58/59/60/63/64/65/66/67/68）都保持真实，硬件过温保护照常；开启 emul 的档位会同时把机身绊线收紧 3°C。高温环境请配合散热器。</div>
     </div>
 
@@ -1091,6 +1091,10 @@ function render(d) {
       ["调度器", d.gov || "-"],
       ["温区", (zonesOff + " / " + zonesTotal) + " 已停用"],
       ["GPU 热限档", d.tp === undefined ? "-" : ("thermal_pwrlevel = " + d.tp)],
+      // gpu is the live clock (idle-locked, identical on every preset) and
+      // gpu_hw is the hardware maximum (constant).  Only gpu_cap shows what a
+      // preset switch did to the GPU, so it gets its own row.
+      ["GPU 上限", (d.gpu_cap ? (parseInt(d.gpu_cap, 10) / 1000000) + " MHz" : "-") + (d.gpu_lvl !== undefined ? "（档位 " + d.gpu_lvl + "）" : "")],
       ["GPU 硬顶", d.gpu_hw ? (parseInt(d.gpu_hw, 10) / 1000000) + " MHz" : "-"],
       // dev diagnostics surfaced from the guard's own state files (d_* keys),
       // so a trip decision can be checked against the UI without adb.
@@ -1400,7 +1404,7 @@ var TIER_TOAST = {
   off:    "温度伪装已关闭，全部温区恢复真实读数",
   lock:   "仅框架锁：系统看到热状态正常，内核温控不受影响",
   normal: "普通伪装：CPU 与 GPU 共 28 个温区读 25°C，其余保持真实",
-  max:    "极致伪装：49 个计算温区全部读 25°C，芯片绊线只剩 PMIC"
+  max:    "极致伪装：48 个计算温区全部读 25°C，芯片绊线只剩 PMIC"
 };
 (function () {
   var seg = document.getElementById("spoofSeg");

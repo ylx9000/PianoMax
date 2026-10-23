@@ -97,6 +97,18 @@ IFS= read -r _v 2>/dev/null < "$GPU/clock_mhz";                 kv gpu  "$_v"
 IFS= read -r _v 2>/dev/null < "$GPU/thermal_pwrlevel";          kv tp   "$_v"
 IFS= read -r _v 2>/dev/null < "$GPU/max_pwrlevel";              kv gpu_lvl "$_v"
 IFS= read -r _v 2>/dev/null < "$GPU/max_gpuclk";                kv gpu_hw "$_v"
+# The ceiling the current pwrlevel maps to.  max_pwrlevel is an ordinal, so
+# neither the live clock (idle-locked) nor max_gpuclk (hardware max, constant)
+# shows what a preset switch actually did to the GPU -- resolve the ordinal
+# against the ladder and report the MHz a preset is capped at.
+IFS= read -r _v 2>/dev/null < "$GPU/max_pwrlevel"; _gl=$_v
+if [ -n "$_gl" ]; then
+    IFS= read -r _v 2>/dev/null <<EOF
+$(awk -v n=$((_gl + 1)) '{ print $n }' "$GPU/gpu_available_frequencies" 2>/dev/null)
+EOF
+    [ -n "$_v" ] || _v=0
+    kv gpu_cap "$_v"
+fi
 IFS= read -r _v 2>/dev/null < "$BUS/DDR/cur_freq";              kv ddr  "$_v"
 IFS= read -r _v 2>/dev/null < "$BUS/LLCC/cur_freq";             kv llcc "$_v"
 

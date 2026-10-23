@@ -271,7 +271,7 @@ apply_temp_spoof() {
     fi
     # Clear whatever a wider tier left behind before deciding what this tier
     # writes.  Downgrading max -> normal used to leave the 21 zones only max
-    # covers still reading 25 C, and max -> lock left all 49 -- so "lock" and
+    # covers still reading 25 C, and max -> lock left all 48 -- so "lock" and
     # "off" would report themselves while the device still behaved like max.
     # The cleanup is keyed on the target list, so switching between emul tiers
     # clears exactly the difference and nothing else.

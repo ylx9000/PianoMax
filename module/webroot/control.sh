@@ -78,7 +78,7 @@ bounds() {
         gpu_idle)   echo "80 10000000" ;;
         gpu_ifpc)   echo "0 1" ;;
         gpu_minp)   echo "0 13" ;;   # kgsl-3d0 num_pwrlevels=14 on piano (0..13, 1100..160 MHz)
-        gpu_lvl)    echo "0 12" ;;
+        gpu_lvl)    echo "0 12" ;;   # capped by min_pwrlevel, see the gpu_lvl branch
         ddr)        echo "547000 4761000" ;;
         llcc)       echo "350000 1211000" ;;
         *)          echo "0 0" ;;
@@ -265,6 +265,9 @@ cmd_set() {
         # Same validation as the generic path: this branch only exists because
         # the write order differs, not to skip the checks.
         pm_num "$v" || { echo "err:not_a_number"; exit 2; }
+        # kgsl rejects max_pwrlevel > min_pwrlevel and still exits 0, so the
+        # ceiling of this slider is the idle floor (12 by default), not the
+        # 14-entry ladder: 13 is only reachable after raising gpu_minp to 13.
         [ "$v" -ge 0 ] && [ "$v" -le 12 ] || { echo "err:out_of_range"; exit 2; }
         lvl=$(node_of gpu_lvl)
         # kgsl clamps max_pwrlevel to min_pwrlevel and still reports success, so
