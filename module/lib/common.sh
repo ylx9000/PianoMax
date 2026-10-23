@@ -346,7 +346,7 @@ PM_SILICON_ZONES=" 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 \
 # Sets PM_REAL alongside the maximum: how many of the inputs returned a usable
 # reading that is NOT the spoofed 25000.  That is the count of sensors still
 # telling the truth, which is what the guard's "all sensors dead" backstop has
-# to watch.  A plain non-zero count cannot do it -- with the emul layer on, 49
+# to watch.  A plain non-zero count cannot do it -- with the emul layer on, 48
 # of the 57 inputs are pinned at 25000, so a total PMIC outage still yields a
 # healthy-looking peak and the backstop would never fire exactly when it is
 # needed most.
