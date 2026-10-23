@@ -614,9 +614,14 @@ while true; do
                 *) continue ;;
             esac
             adj=""; IFS= read -r adj < "$p/oom_score_adj" 2>/dev/null
-            if [ -n "$adj" ] && [ "$adj" != "-1000" ]; then
-                echo -1000 > "$p/oom_score_adj" 2>/dev/null
-                pm_log "launcher pin: ${p##*/} ($c) adj $adj -> -1000"
+            # DIAGNOSTIC BUILD: writing -1000 on a user app fights the adj that
+            # ActivityManager computes for it, and the process then gets killed
+            # (am_proc_died reason=2) roughly every 1.5 s -- that is the 2026-10-23
+            # launcher restart loop.  The scan and its readout stay; the write is
+            # gated behind PM_LAUNCHER_PIN and is off unless it is set explicitly.
+            if [ -n "$adj" ] && [ "$adj" != "-1000" ] && [ -n "$PM_LAUNCHER_PIN" ]; then
+                echo "$PM_LAUNCHER_PIN" > "$p/oom_score_adj" 2>/dev/null
+                pm_log "launcher pin: ${p##*/} ($c) adj $adj -> $PM_LAUNCHER_PIN"
             fi
         done
     fi
