@@ -10,6 +10,7 @@
 # start is worth more than any amount of userspace fighting later.
 
 . "$(dirname "$0")/lib/common.sh"
+PM_COMP=boot   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 
 [ -f "$PM_DIR/disable" ] && exit 0
 [ -f "$PM_OFF" ] && exit 0
@@ -17,7 +18,7 @@
 [ -d "$GPU" ] || exit 0
 
 tp=$(pm_cat "$GPU/thermal_pwrlevel")
-pm_log "post-fs-data gpu tp=$tp"
+pm_logd "gpu_prewarm: tp=$tp"
 
 if [ "$tp" != "0" ]; then
     echo 0 > "$GPU/thermal_pwrlevel" 2>/dev/null
@@ -31,7 +32,7 @@ if [ "$tp" = "0" ]; then
     # holds the GPU at 1100 MHz until service.sh runs -- minutes, not the
     # "two seconds" the old comment claimed.  max_pwrlevel=0 only opens the
     # ceiling; the devfreq governor still idles the GPU at its own floor.
-    pm_log "gpu ladder opened"
+    pm_logn "gpu_ladder: opened (all rungs exposed)"
 else
-    pm_log "gpu tp already latched at $tp"
+    pm_logd "gpu_prewarm: tp already latched at $tp"
 fi

@@ -8,6 +8,7 @@
 # supervisor and returns.
 
 . "$(dirname "$0")/lib/common.sh"
+PM_COMP=service   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 
 [ -f "$PM_DIR/disable" ] && exit 0
 
@@ -15,18 +16,18 @@ i=0
 while [ "$(getprop sys.boot_completed)" != "1" ]; do
     sleep 2
     i=$((i + 1))
-    [ $i -gt 150 ] && { pm_log "boot wait gave up"; exit 0; }
+    [ $i -gt 150 ] && { pm_logw "boot_wait: gave up after 150 rounds"; exit 0; }
 done
 
 sleep 8
 [ -f "$PM_DIR/disable" ] && exit 0
-[ -f "$PM_OFF" ] && { pm_log "service: switched off"; exit 0; }
+[ -f "$PM_OFF" ] && { pm_logn "off: module switched off, service exiting"; exit 0; }
 [ "$(getprop ro.product.device)" = "piano" ] || exit 0
 
 chmod 755 "$PM_DIR"/*.sh "$PM_DIR"/lib/*.sh 2>/dev/null
 sh "$PM_DIR/tune.sh" apply >/dev/null 2>&1
 pm_guard_start >/dev/null 2>&1
-pm_log "service up, guard $(pm_guard_pid 2>/dev/null || echo down)"
+pm_logn "up: guard=$(pm_guard_pid 2>/dev/null || echo down)"
 
 # Magisk has no boot-completed stage, so the watchdog in that file only
 # ever runs under KernelSU.  Start the same slow loop here for every
@@ -43,7 +44,7 @@ pm_log "service up, guard $(pm_guard_pid 2>/dev/null || echo down)"
 # boot-completed loop (it also covers the window before this file runs);
 # every other manager keeps this one.
 if [ -d /data/adb/ksu ] && [ -f "$PM_DIR/boot-completed.sh" ]; then
-    pm_log "watchdog: boot-completed.sh owns the loop on KernelSU"
+    pm_logd "watchdog: boot-completed.sh owns the loop on KernelSU"
 else
 (
     while true; do
@@ -52,7 +53,7 @@ else
         [ -f "$PM_DIR/disable" ] && exit 0
         [ -f "$PM_OFF" ] && continue
         if ! pm_guard_pid >/dev/null 2>&1; then
-            pm_log "service watchdog: guard gone, restarting"
+            pm_logw "watchdog: guard gone, restarting"
             pm_guard_start >/dev/null 2>&1
         fi
     done

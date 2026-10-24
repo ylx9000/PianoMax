@@ -8,6 +8,7 @@
 # so in a comment rather than guessing.
 
 . "$(dirname "$0")/lib/common.sh"
+PM_COMP=restore   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 
 # The numbers below are piano's cpufreq ladder, sched values and bus votes.
 # On any other device this script would overwrite that machine's factory
@@ -193,5 +194,5 @@ for svc in perfd perfd.dyn qti-perfd perf-l2; do
     start "$svc" 2>/dev/null || true
 done
 
-pm_log "restore done"
+pm_logn "restore_done: stock state recovered"
 echo "restore done"

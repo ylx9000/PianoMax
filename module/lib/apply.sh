@@ -15,7 +15,7 @@ ensure_thermald() {
     if [ "$(getprop init.svc.mi_thermald)" != "running" ]; then
         start mi_thermald 2>/dev/null
         sleep 1
-        pm_log "thermald was down, restarted"
+        pm_logw "thermald: was down at apply start, restarted"
     fi
 }
 
@@ -56,7 +56,7 @@ disable_compute_zones() {
             [ "$v" = "25000" ] || continue
             echo 0 > "$z/emul_temp" 2>/dev/null && e=$((e + 1))
         done
-        pm_log "zones re-enabled:$n cleared emul:$e (kernel in charge)"
+        pm_logn "zones: re-enabled n=$n emul_cleared=$e (kernel in charge)"
         return 0
     fi
     n=0; kept=0
@@ -91,12 +91,12 @@ disable_compute_zones() {
                 IFS= read -r m < "$z/mode" 2>/dev/null
                 if [ "$m" = "disabled" ]; then
                     echo enabled > "$z/mode" 2>/dev/null && \
-                        pm_log "protected zone$zn ($t) was disabled -- re-enabled"
+                        pm_logw "zone_protect: $zn ($t) was disabled, re-enabled"
                 fi
                 ;;
         esac
     done
-    pm_log "zones off:$n kept:$kept"
+    pm_logn "zones: off=$n kept=$kept"
 }
 
 # cpu_limits is a command channel: it reads back empty, but a write there is
@@ -120,7 +120,7 @@ pin_boost_daemons() {
     for svc in perfd perfd.dyn qti-perfd perf-l2; do
         [ "$(getprop "init.svc.$svc" 2>/dev/null)" = "running" ] || continue
         stop "$svc" 2>/dev/null || continue
-        pm_log "boost daemon $svc stopped"
+        pm_logn "boost: daemon $svc stopped"
     done
 }
 
@@ -142,7 +142,7 @@ pin_cpu() {
     pm_wr "$CFG/policy6/scaling_governor" "$PM_GOV"
     pm_wr "$CFG/policy0/scaling_max_freq" "$a"
     pm_wr "$CFG/policy6/scaling_max_freq" "$b"
-    pm_log "cpu $(pm_cat $CFG/policy0/scaling_max_freq)/$(pm_cat $CFG/policy6/scaling_max_freq)"
+    pm_logn "apply_cpu: c0=$(pm_cat $CFG/policy0/scaling_max_freq) c6=$(pm_cat $CFG/policy6/scaling_max_freq)"
 }
 
 # The GPU ceiling is latched by a thermal cooling device, not by max_pwrlevel.
@@ -210,7 +210,7 @@ pin_gpu() {
     pm_wr "$GPU/ifpc" 0
     pm_wr "$GPU/wake_nice" -20
     pm_wr "$GPU/wake_timeout" 300
-    pm_log "gpu $(pm_cat $GPU/clock_mhz)MHz tp=$(pm_cat $GPU/thermal_pwrlevel) max=$(pm_cat $GPU/max_gpuclk)"
+    pm_logn "apply_gpu: cur_mhz=$(pm_cat $GPU/clock_mhz) tp=$(pm_cat $GPU/thermal_pwrlevel) max_hz=$(pm_cat $GPU/max_gpuclk)"
 }
 
 pin_bus() {
@@ -225,7 +225,7 @@ pin_bus() {
         pm_wr "$BUS/LLCC/$b/max_freq" "$llcc"
         pm_wr "$BUS/LLCC/$b/min_freq" "$llcc"
     done
-    pm_log "bus ddr=$(pm_cat $BUS/DDR/cur_freq)/$ddr llcc=$(pm_cat $BUS/LLCC/cur_freq)/$llcc"
+    pm_logn "apply_bus: ddr_cur=$(pm_cat $BUS/DDR/cur_freq) ddr_target=$ddr llcc_cur=$(pm_cat $BUS/LLCC/cur_freq) llcc_target=$llcc"
 }
 
 # --- temperature spoofing (optional, off by default) ------------------------
@@ -288,7 +288,7 @@ apply_temp_spoof() {
     # PowerManager/AThermal without ever reaching a kernel governor.
     if [ "$TIER" != "off" ] && [ "$TIER" != "lock" ] && [ "$(pm_zones_kernel)" = "yes" ]; then
         cmd thermalservice override-status 0 >/dev/null 2>&1
-        pm_log "temp spoof ($TIER): kernel-governed preset, degraded to framework lock only"
+        pm_logn "spoof: tier=$TIER kernel-governed preset, degraded to framework lock only"
         TIER=lock
     fi
     # Clear whatever a wider tier left behind before deciding what this tier
@@ -319,10 +319,10 @@ apply_temp_spoof() {
         [ "$_sv" = "25000" ] || continue
         echo 0 > "/sys/class/thermal/thermal_zone$_sz/emul_temp" 2>/dev/null &&             _stale=$((_stale + 1))
     done
-    [ "$_stale" -gt 0 ] && pm_log "temp spoof ($TIER): cleared $_stale zones from a wider tier"
+    [ "$_stale" -gt 0 ] && pm_logn "spoof: tier=$TIER cleared stale=$_stale zones from a wider tier"
     if [ "$TIER" = "lock" ]; then
         cmd thermalservice override-status 0 >/dev/null 2>&1
-        pm_log "temp spoof (lock): framework status override, 0 zones emulated"
+        pm_logn "spoof: tier=lock framework status override, 0 zones emulated"
         return 0
     fi
     # Classify from the type cache (one build per boot, spot-checked), not
@@ -345,7 +345,7 @@ apply_temp_spoof() {
         LIST=$(cat "$LISTFILE" 2>/dev/null)
     fi
     if [ -z "$LIST" ]; then
-        pm_log "temp spoof ($TIER) ABORTED: zone classification produced an empty set"
+        pm_loge "spoof: ABORTED tier=$TIER zone classification produced an empty set"
         return 1
     fi
     for zn in $LIST; do
@@ -376,7 +376,7 @@ apply_temp_spoof() {
         # when the emul layer decays; verified to hold until reset or a
         # framework restart.
         cmd thermalservice override-status 0 >/dev/null 2>&1
-        pm_log "temp spoof ($TIER): $n zones at 25 C + framework status override"
+        pm_logn "spoof: tier=$TIER zones=$n at 25C + framework status override"
     else
         # Unlock first: a locked override with clean zones would freeze the
         # framework at NONE forever, which is the one direction of this
@@ -389,7 +389,7 @@ apply_temp_spoof() {
         # while the kernel had just been cleaned perfectly (3/3 reproduced
         # 2026-10-23).  Always succeed: off is only ever a cleanup.
         if [ "$c" -gt 0 ]; then
-            pm_log "temp spoof off: cleared $c zones"
+            pm_logn "spoof: off, cleared zones=$c"
         fi
         return 0
     fi
@@ -494,6 +494,6 @@ pm_apply_all() {
     tune_io
     tune_display
     settings put global watchdog_timeout_millis 180000 2>/dev/null
-    pm_log "apply done, failures:$PM_FAILS"
+    pm_logn "apply_done: failures=$PM_FAILS (wr_miss + wr_fail above are the itemized list)"
     echo $PM_FAILS
 }

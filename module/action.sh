@@ -8,6 +8,7 @@
 # open on the right on purpose instead of pretending to be a box.
 
 . "$(dirname "$0")/lib/common.sh"
+PM_COMP=ui   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 . "$(dirname "$0")/lib/apply.sh"
 
 # The card button writes every node apply.sh knows; on a foreign device

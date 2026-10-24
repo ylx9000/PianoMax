@@ -7,6 +7,7 @@
 # loops that wait for a condition, no interactive reads.
 
 . "$(dirname "$0")/lib/common.sh"
+PM_COMP=restore   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 
 rm -f "$PM_OFF"
 pm_guard_stop

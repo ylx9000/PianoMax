@@ -14,6 +14,7 @@
 #      resumes by itself.
 
 . "$(dirname "$0")/lib/common.sh"
+PM_COMP=guard   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 . "$(dirname "$0")/lib/apply.sh"
 
 # Mirror of thermal.sh's T_ROOT: the table gate below reads the daemon's
@@ -55,7 +56,7 @@ if ! mkdir "$PM_DIR/.guard_lock" 2>/dev/null; then
         *) alive_old=0 ;;
     esac
     if [ -n "$old" ] && [ -d "/proc/$old" ] && [ "$alive_old" = "1" ]; then
-        pm_log "guard start refused: pid $old already holds the lock"
+        pm_logw "refused: lock held by pid $old (single-instance contract)"
         exit 0
     fi
     if [ -z "$old" ]; then
@@ -75,13 +76,13 @@ if ! mkdir "$PM_DIR/.guard_lock" 2>/dev/null; then
             sh*$PM_DIR/guard.sh*|*"sh "$PM_DIR/guard.sh*|$PM_DIR/guard.sh*) alive_old=1 ;;
         esac
         if [ -n "$old" ] && [ -d "/proc/$old" ] && [ "$alive_old" = "1" ]; then
-            pm_log "guard start refused: pid $old took the lock late"
+            pm_logw "refused: pid $old took the lock late (benign race lost)"
             exit 0
         fi
     fi
-    pm_log "guard start: breaking stale lock${old:+ (pid $old gone)}"
+    pm_logn "stale_lock: breaking (old pid $old gone)"
     rm -rf "$PM_DIR/.guard_lock"
-    mkdir "$PM_DIR/.guard_lock" || { pm_log "guard start failed: lock still held"; exit 1; }
+    mkdir "$PM_DIR/.guard_lock" || { pm_loge "refused: lock mkdir failed, still held"; exit 1; }
 fi
 echo $$ > "$PM_DIR/.guard_lock/pid"
 
@@ -138,7 +139,7 @@ for p in /proc/[0-9]*; do
                 *) continue ;;
             esac
             kill -9 "${p##*/}" 2>/dev/null
-            pm_log "guard takeover: killed stale instance ${p##*/}"
+            pm_logn "takeover: killed stale instance ${p##*/}"
             ;;
     esac
 done
@@ -148,7 +149,7 @@ done
 mkdir -p "$PM_DIR/.guard_lock" 2>/dev/null
 echo $$ > "$PM_DIR/.guard_lock/pid"
 
-pm_log "guard up"
+pm_logn "up: tick loop entered (pid $$, pmax v1.0.0-beta.5)"
 
 # Two independent tripwires, because the two sensor families answer different
 # questions:
@@ -297,7 +298,7 @@ while true; do
     if [ "$STAGE" != "0" ] && [ ! -f "$PM_STAGE" ]; then
         STAGE=0
         RECOVER=0
-        pm_log "stage cleared externally, back-off state reset"
+        pm_logw "stage_reset: stage file cleared externally, back-off state reset"
     fi
 
     # A preset switch resets the thermal state: different thresholds, different
@@ -312,7 +313,7 @@ while true; do
         STAGE_HOLD=0
         GRACE=15
         rm -f "$PM_STAGE"
-        pm_log "profile -> $now_profile, thermal state reset (grace 15)"
+        pm_logn "profile: switched to $now_profile, thermal state reset (grace 15)"
     fi
 
     # ---- temperature -----------------------------------------------------
@@ -401,11 +402,11 @@ while true; do
     if [ "$TC" -eq 0 ] || [ "$PM_REAL" -lt 1 ]; then
         DEAD_C=$((DEAD_C + 1))
     else
-        [ "$DEAD_C" -ge 30 ] && pm_log "silicon sensors back after $DEAD_C ticks"
+        [ "$DEAD_C" -ge 30 ] && pm_logn "sensors_back: silicon after $DEAD_C dead ticks"
         DEAD_C=0
     fi
     if [ "$TS" -eq 0 ]; then DEAD_S=$((DEAD_S + 1)); else
-        [ "$DEAD_S" -ge 30 ] && pm_log "skin sensors back after $DEAD_S ticks"
+        [ "$DEAD_S" -ge 30 ] && pm_logn "sensors_back: skin after $DEAD_S dead ticks"
         DEAD_S=0
     fi
     if [ "$DEAD_C" -ge 30 ] || [ "$DEAD_S" -ge 30 ]; then
@@ -428,9 +429,9 @@ while true; do
                 echo "$NA" > "$CFG/policy0/scaling_max_freq" 2>/dev/null
                 echo "$NB" > "$CFG/policy6/scaling_max_freq" 2>/dev/null
                 echo "backoff $STAGE" > "$PM_STATE.tmp" 2>/dev/null; mv "$PM_STATE.tmp" "$PM_STATE" 2>/dev/null
-                pm_log "sensor outage 30+30 ticks (silicon ${DEAD_C}/skin ${DEAD_S}), forced back-off to stage 1 ($NA/$NB)"
+                pm_loge "outage: sensors dead 30+30 ticks, forcing stage 1 silicon_dead=$DEAD_C skin_dead=$DEAD_S ceiling=$NA/$NB"
             elif [ $((DEAD % 300)) -eq 0 ]; then
-                pm_log "sensor outage $DEAD ticks, still backing off"
+                pm_logw "outage: sensors dead $DEAD ticks, holding back-off"
             fi
         fi
     fi
@@ -445,7 +446,7 @@ while true; do
             [ "$TS" -ge "$TRIPS" ] && { WHICH=skin; LIM="$TS"; }
             if [ "$STAGE" -ge "2" ]; then
                 # Out of stages: hand the whole machine back.
-                pm_log "trip($WHICH) at $LIM mC (silicon $TC/skin $TS), stage 2 exceeded, restoring everything (targets $(pm_base0)/$(pm_base6))"
+                pm_loge "trip: $WHICH limit exceeded, restoring everything lim=$LIM tc=$TC ts=$TS stage=$STAGE ceiling=$(pm_base0)/$(pm_base6)"
                 sh "$PM_DIR/restore.sh" >/dev/null 2>&1
                 HELD=0; COOL=0
                 echo "tripped $WHICH" > "$PM_STATE.tmp" 2>/dev/null; mv "$PM_STATE.tmp" "$PM_STATE" 2>/dev/null
@@ -474,7 +475,7 @@ while true; do
                 echo "$a" > "$CFG/policy0/scaling_max_freq" 2>/dev/null
                 echo "$b" > "$CFG/policy6/scaling_max_freq" 2>/dev/null
                 echo "backoff $STAGE" > "$PM_STATE.tmp" 2>/dev/null; mv "$PM_STATE.tmp" "$PM_STATE" 2>/dev/null
-                pm_log "trip($WHICH) at $LIM mC (silicon $TC/skin $TS), back-off to stage $STAGE ($a/$b, was $c0/$c6)"
+                pm_logw "trip: $WHICH limit exceeded, backing off lim=$LIM tc=$TC ts=$TS stage=$STAGE ceiling=$a/$b was=$c0/$c6"
                 COOL=0
                 STAGE_HOLD=0
             else
@@ -482,7 +483,7 @@ while true; do
                 # single sensor spike cannot chatter the ceiling.  Logged at a
                 # slow cadence anyway -- silence at 105 C is indistinguishable
                 # from a dead sensor from the outside.
-                [ $((STREAK % 30)) -eq 0 ] && pm_log "trip($WHICH) inside hold window (${STAGE_HOLD}/15), ignored"
+                [ $((STREAK % 30)) -eq 0 ] && pm_logd "trip_hold: inside hold window $STAGE_HOLD/15, ignored sensor=$WHICH"
             fi
             # (fallthrough: keep the current stage)
         fi
@@ -523,7 +524,7 @@ while true; do
                             echo "$na" > "$CFG/policy0/scaling_max_freq" 2>/dev/null
                             echo "$nb" > "$CFG/policy6/scaling_max_freq" 2>/dev/null ;;
                     esac
-                    pm_log "recover to stage $STAGE (silicon $TC/skin $TS, targets $a/$b)"
+                    pm_logn "recover: to stage $STAGE tc=$TC ts=$TS ceiling=$a/$b"
                     RECOVER=0
                 fi
             else
@@ -540,7 +541,7 @@ while true; do
                 COOL=0
             fi
             if [ "$COOL" -ge 30 ]; then
-                pm_log "re-arm at silicon ${TC} / skin ${TS} mC (stage ${STAGE}), swapping table for $PK"
+                pm_logn "rearm: temp back under limits, swapping table for $PK tc=$TC ts=$TS stage=$STAGE"
                 # A stage-2-exceeded exit went through restore.sh, which put
                 # the vendor thermal table back and wiped the working files.
                 # pm_apply_all re-creates the latter (pm_state_rebuild is its
@@ -557,7 +558,7 @@ while true; do
                 # Failure is logged and non-fatal: the re-pin loop holds.
                 if [ "$PKZ" = "module" ] && [ -d "$PM_DIR/thermal/$PK" ]; then
                     . "$PM_DIR/lib/thermal.sh"
-                    pm_thermal_swap "$PK" >/dev/null 2>&1 || pm_log "re-arm: thermal swap failed for $PK"
+                    pm_thermal_swap "$PK" >/dev/null 2>&1 || pm_loge "rearm: thermal swap FAILED for $PK (thermald keeps old table)"
                 fi
                 held_reset
                 HELD=1; COOL=0
@@ -619,7 +620,7 @@ while true; do
             # Log the first few and then only every 60th, so a permanent
             # fight does not fill the log file.
             if [ "$SAVED_FAILS" -le 3 ] || [ $((SAVED_FAILS % 60)) -eq 0 ]; then
-                pm_log "re-pin ${a}/${b} (was ${c0}/${c6}) n=$SAVED_FAILS"
+                pm_logd "repin: ceiling re-applied target=$a/$b was=$c0/$c6 fixups=$SAVED_FAILS"
             fi
         fi
         # Keep the GPU latch open.  msm-adreno-tz re-arms it after any thermal
@@ -650,7 +651,7 @@ while true; do
                 # reason, and a hardcoded 0 would quietly undo a lower preset's
                 # GPU cap on the first thermal re-latch.
                 pm_wr "$GPU/max_pwrlevel" "$(pm_gpu_level)"
-                pm_log "gpu latch released (was $g)"
+                pm_logd "gpu_latch: released (was pwrlevel $g)"
             else
                 # Release failed and the ceiling is still clamped.  This used
                 # to be silent: under sustained heat the daemon re-latches
@@ -659,7 +660,7 @@ while true; do
                 # shape as SAVED_FAILS: first three verbatim, then 1/60.
                 GPULOST=$((GPULOST + 1))
                 if [ "$GPULOST" -le 3 ] || [ $((GPULOST % 60)) -eq 0 ]; then
-                    pm_log "gpu latch STUCK at $g2 (n=$GPULOST) -- thermald keeps re-clamping"
+                    pm_logw "gpu_latch: STUCK at pwrlevel $g2 lost=$GPULOST (thermald keeps re-clamping)"
                 fi
             fi
         fi
@@ -744,7 +745,7 @@ while true; do
             # splits on whitespace, so $2 is the bare number (unit dropped).
             case "$_mi_" in MemAvailable:*) set -- $_mi_; mem=$2 ;; esac
         done < /proc/meminfo 2>/dev/null
-        pm_log "alive held=$HELD stage=$STAGE silicon=${TC} skin=${TS} gov=${gov:-?} max=${c0:-?}/${c6:-?} pmax=${p0:-?}/${p6:-?} gpu=${gclk:-?}MHz ddr=${ddr:-?} llcc=${llc:-?} mem=${mem:-?}KB real=${PM_REAL:-99} spoof=$SPOOF_MODE ov=${OV##*IsStatusOverride:}"
+        pm_logd "alive held=$HELD stage=$STAGE tc=${TC:-?} ts=${TS:-?} gov=${gov:-?} c0_max=${c0:-?} c6_max=${c6:-?} c0_cur=${p0:-?} c6_cur=${p6:-?} gpu=${gclk:-?} ddr=${ddr:-?} llcc=${llc:-?} mem_kb=${mem:-?} real=${PM_REAL:-99} spoof=$SPOOF_MODE ov=${OV##*IsStatusOverride:}"
     fi
 
     # ---- spoof freshness ------------------------------------------------
@@ -769,7 +770,7 @@ while true; do
         if cmd thermalservice override-status 0 >/dev/null 2>&1; then
             : # lock re-asserted
         else
-            pm_log "spoof: override-status write rc=1 (framework unreachable?)"
+            pm_logw "spoof: override-status write rc=1 (framework unreachable?)"
         fi
     fi
     # Publish the override flag for the WebUI snapshot path: the guard has to
@@ -795,13 +796,13 @@ while true; do
             *Override:false*|*Override:false)
                 OV_LOSS=$((OV_LOSS + 1))
                 if [ "$OV_LOSS" -eq 1 ]; then
-                    pm_log "spoof: framework override LOST (re-asserting; 1st of this outage)"
+                    pm_logw "spoof: framework override LOST, re-asserting (1st of this outage)"
                 elif [ $((OV_LOSS % 60)) -eq 0 ]; then
-                    pm_log "spoof: framework override still lost after $OV_LOSS samples (~$((OV_LOSS * 5))s)"
+                    pm_logw "spoof: framework override still lost lost_samples=$OV_LOSS approx_s=$((OV_LOSS * 5))"
                 fi ;;
             *Override:true*)
                 if [ "$OV_LOSS" -gt 0 ]; then
-                    pm_log "spoof: framework override recovered after $OV_LOSS lost samples"
+                    pm_logn "spoof: framework override recovered lost_samples=$OV_LOSS"
                 fi
                 OV_LOSS=0 ;;
         esac

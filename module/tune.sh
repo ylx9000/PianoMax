@@ -4,6 +4,7 @@
 # Licensed under the PolyForm Noncommercial License 1.0.0.
 
 . "$(dirname "$0")/lib/common.sh"
+PM_COMP=ui   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 . "$(dirname "$0")/lib/apply.sh"
 
 DEV=$(getprop ro.product.device)

@@ -14,6 +14,7 @@
 # The keys are powersave / balanced / performance / extreme.
 
 . "$(dirname "$0")/lib/common.sh"
+PM_COMP=profile   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 
 # Snap an arbitrary number to the nearest step the kernel actually offers.
 # Frequencies outside the ladder are accepted by sysfs and silently rounded, so
@@ -120,7 +121,7 @@ case "$1" in
         # letting the kernel handle silicon safety undisturbed.
         if [ "$zn" = "module" ] && [ -d "$PM_DIR/thermal/$k" ]; then
             . "$PM_DIR/lib/thermal.sh"
-            pm_thermal_swap "$k" || pm_log "profile: thermal swap failed for $k (continuing with re-pin)"
+            pm_thermal_swap "$k" || pm_logw "profile: thermal swap FAILED for $k (continuing with re-pin)"
         else
             . "$PM_DIR/lib/thermal.sh"
             pm_thermal_revert

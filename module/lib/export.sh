@@ -21,6 +21,7 @@ if [ -z "${PM_DIR:-}" ] || [ ! -f "$PM_DIR/module.prop" ]; then
         i=$((i + 1))
     done
     . "$PM_DIR/lib/common.sh"
+PM_COMP=diag   # log v2: comp tag (RFC5424 APP-NAME analogue)
 fi
 
 # The gate probes the same applet pm_crc32 uses, so "zip possible" and

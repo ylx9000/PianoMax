@@ -18,6 +18,7 @@
 PM_DIR=$(cd "${0%/*}/.." 2>/dev/null && pwd)
 MODDIR=$PM_DIR
 . "$MODDIR/lib/common.sh"
+PM_COMP=ui   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 
 # Same device gate as every other entry point: the node map below is
 # piano-specific sysfs, and a foreign device must not be able to write
@@ -154,7 +155,7 @@ cmd_set() {
             # not a permanent lie).
             r0=""; IFS= read -r r0 < "$CFG/policy0/scaling_max_freq" 2>/dev/null
             r6=""; IFS= read -r r6 < "$CFG/policy6/scaling_max_freq" 2>/dev/null
-            pm_log "target set $a/$b (readback $r0/$r6)"
+            pm_logn "target_set: c0=$a c6=$b readback=$r0/$r6"
             echo "ok:$a $b"; exit 0 ;;
         gov)
             case "$v" in
@@ -174,11 +175,11 @@ cmd_set() {
                     IFS= read -r g0 < "$CFG/policy0/scaling_governor" 2>/dev/null
                     IFS= read -r g6 < "$CFG/policy6/scaling_governor" 2>/dev/null
                     if [ "$g0" != "$v" ] || [ "$g6" != "$v" ]; then
-                        pm_log "governor set $v FAILED (kernel kept $g0/$g6)"
+                        pm_loge "governor_set: REJECTED v=$v kernel_kept=$g0/$g6"
                         echo "err:gov_rejected"
                         exit 2
                     fi
-                    pm_log "governor set $v"
+                    pm_logn "governor_set: v=$v"
                     echo "ok:$v"; exit 0 ;;
                 *) echo "err:bad_governor"; exit 2 ;;
             esac ;;
@@ -341,7 +342,7 @@ cmd_presets() {
 # logs to develop against: an action log answers "what changed, when, by
 # which surface" without correlating guard ticks.  Read-only views
 # (snapshot/presets) are excluded -- they fire every 3 s and would flood.
-audit() { pm_log "ui-action: $1 (from $2)"; }
+audit() { pm_logn "ui_action: $1 (from $2)"; }
 caller_surface="webui"
 case "$1" in
     presets)  cmd_presets ;;

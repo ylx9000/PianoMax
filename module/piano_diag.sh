@@ -234,6 +234,7 @@ hdr "6. tripwire coverage"
 # lists; both sides now derive from PM_SILICON_ZONES, and this check proves it
 # on the device rather than in the source.
 . "$PM_DIR/lib/common.sh" 2>/dev/null
+: "${PM_COMP:=diag}"   # log v2: comp default only -- callers keep theirs
 OFFLIST=""; OFFN=0
 for z in /sys/class/thermal/thermal_zone*; do
     m=""; IFS= read -r m < "$z/mode" 2>/dev/null
@@ -254,11 +255,23 @@ else
     say_warn "$UNGOVN disabled zone(s) no tripwire reads:$UNGOV -- governor off, module blind; update PM_SILICON_ZONES"
 fi
 
-hdr "7. recent log tail"
-echo "  --- last 5 log lines ---"
-tail -5 "$PM_DIR/pianomax.log" 2>/dev/null | sed 's/^/  /'
-ERRS=$(grep -cE 'wr miss|wr fail' "$PM_DIR/pianomax.log" 2>/dev/null)
-[ "$ERRS" = "0" ] && say_ok "no write failures in log" || say_warn "$ERRS write failure lines in log history"
+hdr "7. log summary"
+# Log v2 lines are "<date> <L> <comp> <evt> <msg>"; level is always field 3.
+# Counting by that field survives any message rewording -- the old
+# "wr miss|wr fail" grep went dark the moment the wording changed.
+LOGF="$PM_DIR/pianomax.log"
+if [ -f "$LOGF" ]; then
+    NE=$(awk '$3 == "E"' "$LOGF" 2>/dev/null | wc -l)
+    NW=$(awk '$3 == "W"' "$LOGF" 2>/dev/null | wc -l)
+    ND=$(awk '$3 == "D"' "$LOGF" 2>/dev/null | wc -l)
+    echo "  lines: E=$NE W=$NW D=$ND (info/notice not counted)"
+    [ "$NE" = "0" ] && say_ok "no error-level lines" || { say_fail "$NE error lines"; grep " E " "$LOGF" | tail -3 | sed 's/^/    last E: /'; }
+    [ "$NW" = "0" ] && say_ok "no warning-level lines" || { say_warn "$NW warning lines"; grep " W " "$LOGF" | tail -3 | sed 's/^/    last W: /'; }
+else
+    say_warn "no log file yet (fresh install?)"
+fi
+echo "  --- last 5 lines ---"
+tail -5 "$LOGF" 2>/dev/null | sed 's/^/  /'
 
 hdr "8. state drift"
 # .target must equal the active preset's own row in presets.txt.  A

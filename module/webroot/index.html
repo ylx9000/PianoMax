@@ -1512,12 +1512,20 @@ var TIER_TOAST = {
 // 200 lines, level filter, optional live tail. The module log now carries
 // a parseable shape (alive/launcher pin/ui-action/trip/... prefixes), so
 // the viewer can slice it without touching the shell side.
+// Log v2 line shape: "<date> <L> <comp> <evt> <msg> [k=v ...]".  The level
+// and component are positional fields, so filtering is a field test, not a
+// keyword guessing game -- the old regex table silently missed every message
+// whose wording changed.
+var LOG_FIELD_RE = /^\d{2}-\d{2} \d{2}:\d{2}:\d{2} ([ENWDI]) (\S+) (\S+) /;
 var LOG_FILTERS = [
-  { k: "all",    label: "全部",   re: null },
-  { k: "action", label: "操作",   re: /ui-action|target set|governor set/ },
-  { k: "trip",   label: "降档",   re: /trip\(|recover|back-off|re-arm/ },
-  { k: "spoof",  label: "伪装",   re: /spoof/ },
-  { k: "warn",   label: "异常",   re: /LOST|failed|refused|outage|DEAD|stuck|rc=1/i }
+  { k: "all",    label: "全部",   f: null },
+  { k: "warn",   label: "异常",   f: function (lv, comp) { return lv === "E" || lv === "W"; } },
+  { k: "trip",   label: "降档",   f: function (lv, comp, evt) { return evt === "trip" || evt === "trip_hold" || evt === "recover" || evt === "rearm" || evt === "outage" || evt === "stage_reset"; } },
+  { k: "action", label: "操作",   f: function (lv, comp, evt) { return comp === "ui" && lv !== "D"; } },
+  { k: "apply",  label: "应用",   f: function (lv, comp, evt) { return evt.indexOf("apply_") === 0 || evt === "zones" || evt === "zone_protect" || evt === "spoof" || evt === "target_set" || evt === "governor_set"; } },
+  { k: "therm",  label: "热表",   f: function (lv, comp, evt) { return comp === "thermal"; } },
+  { k: "spoof",  label: "伪装",   f: function (lv, comp, evt) { return evt.indexOf("spoof") === 0; } },
+  { k: "state",  label: "状态",   f: function (lv, comp, evt) { return evt === "alive" || evt === "up" || evt === "repin" || evt === "gpu_latch" || evt === "cpu" || evt === "bus" || evt === "gpu"; } },
 ];
 var logFilter = "all";
 var logLive = false;
@@ -1527,7 +1535,13 @@ function renderLog(text) {
   var box = document.getElementById("logBox");
   var f = LOG_FILTERS.find(function (x) { return x.k === logFilter; }) || LOG_FILTERS[0];
   var lines = (text || "").split("\n");
-  if (f.re) lines = lines.filter(function (l) { return f.re.test(l); });
+  if (f.f) lines = lines.filter(function (l) {
+    var m = LOG_FIELD_RE.exec(l);
+    // Pre-v2 lines (no field prefix) always show, so an old log never
+    // renders as an empty box right after an update.
+    if (!m) return true;
+    return f.f(m[1], m[2], m[3]);
+  });
   box.textContent = lines.length ? lines.join("\n") : "(该过滤条件下没有日志行)";
   box.scrollTop = box.scrollHeight;
 }

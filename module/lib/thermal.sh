@@ -15,6 +15,7 @@
 # lives in lib/ next to common.sh, so the helper is a sibling, not a
 # subdirectory -- "$0"'s own directory is already lib/.
 [ -n "${PM_DIR:-}" ] || . "$(dirname "$0")/common.sh"
+: "${PM_COMP:=thermal}"   # log v2: comp default only -- callers keep theirs
 
 # Where the vendor daemon looks for overrides.  init creates this directory
 # (0771, root:system) at post-fs-data; anything placed here outranks
@@ -85,7 +86,7 @@ T_VENDOR=/odm/etc
 # Without this the revert path is fiction, so the swap refuses to run until
 # it has a capture from this boot.
 pm_thermal_capture() {
-    [ -d "$T_DIR" ] || { pm_log "thermal: no config dir, table swap unavailable"; return 1; }
+    [ -d "$T_DIR" ] || { pm_logw "table_swap: no config dir $T_DIR, unavailable"; return 1; }
     # A marker without a populated snapshot is worse than no marker: the
     # early return would bless an empty capture, and revert would then
     # refuse forever while our table sits in T_DIR with the immutable bit
@@ -112,7 +113,7 @@ pm_thermal_capture() {
         # Skip anything that is byte-identical to one of our own preset
         # tables -- that is not a vendor table, whatever directory it is in.
         if pm_is_own_table "$f"; then
-            pm_log "thermal: skipped our own table in $b during capture"
+            pm_logd "capture: skipped our own table in $b"
             continue
         fi
         cp "$f" "$PM_DIR/.thermal_orig/$b" 2>/dev/null && n=$((n + 1))
@@ -124,9 +125,9 @@ pm_thermal_capture() {
     chmod -R 660 "$PM_DIR/.thermal_orig" 2>/dev/null
     # Marker after the emptiness check: a capture of nothing must not
     # poison every later swap on this boot.
-    [ "$n" -gt 0 ] || { pm_log "thermal: nothing to capture yet, will retry"; return 1; }
+    [ "$n" -gt 0 ] || { pm_logd "capture: nothing to capture yet, will retry"; return 1; }
     echo "$n" > "$PM_DIR/.thermal_captured"
-    pm_log "thermal: captured $n vendor tables"
+    pm_logn "capture: vendor tables n=$n"
     return 0
 }
 
@@ -136,7 +137,7 @@ pm_thermal_capture() {
 # these files for changes.
 pm_thermal_swap() {
     mode=$1
-    [ -d "$T_SRC/$mode" ] || { pm_log "thermal: no table for $mode"; return 1; }
+    [ -d "$T_SRC/$mode" ] || { pm_loge "swap: no table variant for $mode"; return 1; }
     # Rival thermal tables from other modules shadow ours by mount order:
     # theirs lands later in the vendor config path and wins every daemon
     # reload, which reads back as "the preset stopped working" with nothing
@@ -149,7 +150,7 @@ pm_thermal_swap() {
                  /data/adb/modules/*/[Ss]ystem/vendor/etc/thermal*.conf; do
         [ -f "$rival" ] || continue
         case "$rival" in *"/pianomax/"*) continue ;; esac
-        pm_log "thermal: rival table in $rival -- theirs may shadow ours (mount order)"
+        pm_logw "swap: rival table in $rival may shadow ours (mount order)"
     done
     pm_thermal_capture || return 1
     # Cloud control (powerkeeper/joyose) rewrites this directory whenever it
@@ -177,7 +178,7 @@ pm_thermal_swap() {
         # enforcing a half-copied policy.  No stamp means guard re-pins,
         # which is the safe state.
         rm -f "$T_STAMP" "$PM_DIR/.thermal_ts"
-        pm_log "thermal: swap copy failed for $mode, stamp cleared -- guard keeps re-pinning"
+        pm_loge "swap: copy FAILED for $mode, stamp cleared (guard keeps re-pinning)"
         return 1
     fi
     restorecon -DFR "$T_DIR" 2>/dev/null
@@ -205,7 +206,7 @@ pm_thermal_swap() {
         echo "$mode" > "$T_STAMP"
     else
         rm -f "$T_STAMP"
-        pm_log "thermal: verify failed, stamp withheld -- guard keeps re-pinning"
+        pm_loge "swap: verify FAILED, stamp withheld (guard keeps re-pinning)"
     fi
     # Pin the override directory immutable: joyose/powerkeeper rewrite T_DIR
     # "whenever it feels like it" (its own comment in this file), and a cloud
@@ -236,10 +237,10 @@ pm_thermal_revert() {
             [ -f "$f" ] || continue
             if pm_is_own_table "$f"; then
                 rm -f "$f"
-                pm_log "thermal: removed our pinned table $(basename "$f")"
+                pm_logn "revert: removed our pinned table $(basename "$f")"
             fi
         done
-        pm_log "thermal: revert refused, vendor snapshot missing or empty"
+        pm_loge "revert: REFUSED, vendor snapshot missing or empty"
         return 1
     fi
     chattr -R -i "$T_DIR" 2>/dev/null
@@ -252,7 +253,7 @@ pm_thermal_revert() {
         [ -f "$f" ] || continue
         b=$(basename "$f")
         if pm_is_own_table "$f"; then
-            pm_log "thermal: dropping contaminated snapshot entry $b"
+            pm_logw "snapshot: dropping contaminated entry $b"
             rm -f "$f"
             continue
         fi
@@ -272,7 +273,7 @@ pm_thermal_revert() {
             chown root:system "$T_DIR/$b" 2>/dev/null
             _restored=$((_restored + 1))
         done
-        [ "$_restored" -gt 0 ] && pm_log "thermal: recovered $_restored table(s) from $T_VENDOR"
+        [ "$_restored" -gt 0 ] && pm_logn "snapshot: recovered n=$_restored table(s) from $T_VENDOR"
     fi
     # A preset conf the vendor never shipped is not in the snapshot: removing
     # the snapshot files alone would leave it behind, and the daemon would
@@ -282,7 +283,7 @@ pm_thermal_revert() {
         [ -f "$f" ] || continue
         [ -f "$PM_DIR/.thermal_orig/$(basename "$f")" ] || {
             rm -f "$f"
-            pm_log "thermal: removed non-vendor table $(basename "$f")"
+            pm_logn "revert: removed non-vendor table $(basename "$f")"
         }
     done
     # .thermal_ts goes with the stamp.  Leaving it behind is harmless for the
@@ -301,7 +302,7 @@ pm_thermal_revert() {
     # Short poll on revert: the vendor tables are physically back either
     # way, and uninstall must not sit here for the full 10 s window.
     pm_thermal_verify vendor "$tb" 2 || true
-    pm_log "thermal: vendor tables restored"
+    pm_logn "revert: vendor tables restored"
 }
 
 # Trust, but verify: decrypt.txt carries the plaintext of whatever the
@@ -321,7 +322,7 @@ pm_thermal_verify() {
     # No decrypt.txt at all: the ROM either moved it or never exposes it.
     # There is nothing to watch, so the swap is accepted on faith and the
     # guard remains the safety net.
-    [ -f "$T_ROOT/decrypt.txt" ] || { pm_log "thermal: no decrypt.txt, swap accepted unverified"; return 0; }
+    [ -f "$T_ROOT/decrypt.txt" ] || { pm_logd "verify: no decrypt.txt, swap accepted unverified"; return 0; }
     i=0
     while [ "$i" -lt $((polls * 4)) ]; do
         # mksh read -t needs an fd that can BLOCK.  /dev/null is always EOF
@@ -332,12 +333,12 @@ pm_thermal_verify() {
         sleep 0.25
         after=$(pm_stat_sig "$T_ROOT/decrypt.txt")
         if [ -n "$after" ] && [ "$after" != "$before" ]; then
-            pm_log "thermal: daemon reloaded (table $mode stamped, after $((i + 1)) polls)"
+            pm_logn "verify: daemon reloaded table=$mode polls=$((i + 1))"
             return 0
         fi
         i=$((i + 1))
     done
-    pm_log "thermal: no reload detected after restart ($mode stamped, waited $((polls))s)"
+    pm_logw "verify: no reload detected after restart table=$mode waited_s=$polls"
     return 1
 }
 

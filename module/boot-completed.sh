@@ -10,15 +10,16 @@
 # stale snapshot from the moment it died.
 
 . "$(dirname "$0")/lib/common.sh"
+PM_COMP=boot   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 
 [ -f "$PM_DIR/disable" ] && exit 0
 [ -f "$PM_OFF" ] && exit 0
 
 sleep 30
-pm_log "boot-completed check"
+pm_logd "boot_completed: check"
 
 if ! pm_guard_pid >/dev/null 2>&1; then
-    pm_log "boot-completed: guard missing, restarting"
+    pm_logw "boot_completed: guard missing, restarting"
     pm_guard_start >/dev/null 2>&1
 fi
 
@@ -35,7 +36,7 @@ fi
         [ -f "$PM_DIR/disable" ] && exit 0
         [ -f "$PM_OFF" ] && continue
         if ! pm_guard_pid >/dev/null 2>&1; then
-            pm_log "watchdog: guard gone, restarting"
+            pm_logw "watchdog: guard gone, restarting"
             pm_guard_start >/dev/null 2>&1
         fi
     done

@@ -39,16 +39,52 @@ TM=/sys/devices/virtual/thermal/thermal_message
 GPU=/sys/class/kgsl/kgsl-3d0
 BUS=/sys/devices/system/cpu/bus_dcvs
 
-pm_log() { echo "[$(date +%m-%d\ %H:%M:%S)] $*" >> "$PM_LOG" 2>/dev/null; }
+# ---- logging v2 -------------------------------------------------------------
+# Format: <ts> <L> <comp> <evt> <msg> [k=v ...]
+#
+# Levels follow the RFC 5424 severity ladder collapsed to five ranks
+# (E=error W=warning N=notice I=info D=debug).  The field layout is logfmt
+# (Heroku/Stripe convention, also Splunk's recommended emission format):
+# one flat key=value plane after a human-readable message, so a line stays
+# legible in `tail -f` and greppable per field at the same time.  comp is
+# the RFC 5424 APP-NAME analogue -- each entry script sets PM_COMP once and
+# every line it emits carries it.  evt is a stable event code derived from
+# the first word of the message, so "grep ' E guard'" and
+# "grep evt=trip" both work without any writer-side bookkeeping.
+#
+# Back-compat: pm_log "$msg" keeps its old signature and is level I.  The
+# old "[ts] msg" shape is gone -- the UI filter table is the single place
+# that parses shapes, and it was updated in the same commit.
+PM_COMP=${PM_COMP:-core}
+pm_logv() {
+    # $1 level, $2.. message.  evt = first word, lowercased, non-alnum stripped.
+    _lvl=$1; shift
+    _msg="$*"
+    _evt=$(printf %s "${_msg%%[ :]*}" | tr -cd "a-z0-9A-Z_" | tr "A-Z" "a-z")
+    [ -n "$_evt" ] || _evt=evt
+    echo "$(date +%m-%d\ %H:%M:%S) $_lvl $PM_COMP $_evt $_msg" >> "$PM_LOG" 2>/dev/null
+}
+# Levels are chosen at the call site -- the kernel printk discipline: the
+# writer knows the importance, not the reader.
+pm_log()  { PM_COMP=${PM_COMP:-core}; pm_logv I "$@"; }
+pm_logw() { PM_COMP=${PM_COMP:-core}; pm_logv W "$@"; }
+pm_loge() { PM_COMP=${PM_COMP:-core}; pm_logv E "$@"; }
+pm_logn() { PM_COMP=${PM_COMP:-core}; pm_logv N "$@"; }
+pm_logd() { PM_COMP=${PM_COMP:-core}; pm_logv D "$@"; }
 
 # The daemon writes a heartbeat every 30 s forever; without a cap the log
-# grows without bound.  Checked by size, truncated to the last 400 lines and
-# only when past 32 KB, so normal bursts are never cut mid-trace.
+# grows without bound.  Checked by size, truncated to the last 1000 lines
+# and only when past 128 KB.  At ~200 B per heartbeat that window holds
+# ~25 min of idle tracing plus every recent event -- the old 32 KB window
+# rolled a heavy session off in under 3 minutes, which is exactly how the
+# 2026-10-25 thermal-pressure evidence nearly got lost.
+PM_LOG_MAX=131072
+PM_LOG_KEEP=1000
 pm_log_trim() {
     [ -f "$PM_LOG" ] || return 0
     sz=$(wc -c < "$PM_LOG" 2>/dev/null)
-    [ "${sz:-0}" -gt 32768 ] || return 0
-    tail -n 400 "$PM_LOG" > "$PM_LOG.tmp" 2>/dev/null && mv "$PM_LOG.tmp" "$PM_LOG"
+    [ "${sz:-0}" -gt "$PM_LOG_MAX" ] || return 0
+    tail -n "$PM_LOG_KEEP" "$PM_LOG" > "$PM_LOG.tmp" 2>/dev/null && mv "$PM_LOG.tmp" "$PM_LOG"
 }
 
 # Read a sysfs node, print an empty string on any failure.
@@ -58,9 +94,9 @@ pm_cat() { cat "$1" 2>/dev/null; }
 # failure mode of shell redirection, so every tunable write is counted.
 PM_FAILS=0
 pm_wr() {
-    [ -e "$1" ] || { PM_FAILS=$((PM_FAILS + 1)); pm_log "wr miss $1"; return 1; }
+    [ -e "$1" ] || { PM_FAILS=$((PM_FAILS + 1)); pm_loge "wr_miss: node absent $1"; return 1; }
     if echo "$2" > "$1" 2>/dev/null; then return 0; fi
-    PM_FAILS=$((PM_FAILS + 1)); pm_log "wr fail $1 (=$2)"; return 1
+    PM_FAILS=$((PM_FAILS + 1)); pm_loge "wr_fail: kernel refused $1 value=$2"; return 1
 }
 
 # --- install environment ----------------------------------------------------
