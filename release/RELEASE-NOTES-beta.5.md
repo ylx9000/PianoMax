@@ -1,6 +1,6 @@
 # PianoMax v1.0.0-beta.5
 
-**刷入前**：从 beta.4 升级请直接刷；beta.4 的 GitHub 资产是半成品构建（见下），装过它的设备必须升到本版。
+**刷入前**：从 beta.4 升级请直接刷。beta.4 存在两份内容不同的构建共用一个版本号（见下），装过它的设备必须升到本版才能确认自己装的是哪一份。
 
 ## 修复
 
@@ -21,10 +21,14 @@
 
 ## 校验
 
-- `PianoMax-v1.0.0-beta.5.zip` 135,383 字节
-- SHA-256: `A1A087E5347749D5FE313E3F608E1939B0E3E90FE64A7446FADA73553D71DD1A`
-- tag `v1.0.0-beta.5` → commit `6191855`
+- `PianoMax-v1.0.0-beta.5.zip` 135,276 字节
+- SHA-256: `ED1714397DD60D4B651B6C9EA9044AB9E7C99AF894A23A67994F4C0A154701E9`
+- tag `v1.0.0-beta.5` → commit `7c46ad0`
 
-## 致谢
+核验：`curl -sL https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip | sha256sum`
 
-- beta.4 的 GitHub 资产（124,404 字节）是推送事故下的半成品构建 abae45f，与本地 beta.4 不等价 —— 这是 versionCode 让到 6 的原因
+## 关于 beta.4 的两份构建
+
+- GitHub 上的 beta.4 资产（124,404 字节）是 `abae45f` 的完整构建，能用；本地后来又完成了一轮修复（`0beaade`，6 个文件 157 行）但没推送，那个包是 127,581 字节。
+- 两者 `module.prop` 都写 `versionCode=5`，所以装过 beta.4 的设备既收不到更新提示，也看不出自己装的是哪一份 —— 这是本次把 versionCode 让到 6 的原因。
+- 用 `grep -c PM_LAUNCHER_PIN /data/adb/modules/pianomax/guard.sh` 可以判断手上是哪一份：返回 0 是 `abae45f`，非 0 是 `0beaade`。

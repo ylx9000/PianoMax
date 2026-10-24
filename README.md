@@ -30,7 +30,7 @@
 
 <div align="center">
 
-[![下载最新版](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-PianoMax.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip)
+[![下载最新版](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-PianoMax--v1.0.0--beta.5.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip)
 
 </div>
 
@@ -273,7 +273,7 @@ GPU 上限不是由 `max_pwrlevel` 决定的，而是被一个热冷却设备锁
 ## 开发
 
 ```sh
-bash build.sh    # 打包到 release/PianoMax-<version>.zip（同时生成稳定名 PianoMax.zip）
+bash build.sh    # 打包到 release/PianoMax-<version>.zip
 ```
 
 模块结构：

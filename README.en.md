@@ -30,7 +30,7 @@ Four presets — Power save / Balanced / Performance / Extreme. Each preset is a
 
 <div align="center">
 
-[![Download](https://img.shields.io/badge/Download-PianoMax.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip)
+[![Download](https://img.shields.io/badge/Download-PianoMax--v1.0.0--beta.5.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip)
 
 </div>
 
@@ -265,7 +265,7 @@ Measured: `cur_state 6 → 0` pulls `max_gpuclk` from 660 MHz back to 1100 MHz a
 ## Development
 
 ```sh
-bash build.sh    # packages release/PianoMax-<version>.zip (plus stable-named PianoMax.zip)
+bash build.sh    # packages release/PianoMax-<version>.zip
 ```
 
 Module layout:

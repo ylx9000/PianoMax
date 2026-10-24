@@ -164,8 +164,10 @@ fs.mkdirSync(path.join(root, "release"), { recursive: true });
 const blob = Buffer.concat([...chunks, cd, end]);
 const out = path.join(root, "release", "PianoMax-" + ver + ".zip");
 fs.writeFileSync(out, blob);
-// Stable asset name: the README links /releases/latest/download/PianoMax.zip,
-// which GitHub resolves to the newest release's asset with this exact name,
-// so the link never goes stale when a version ships.
+// Local convenience copy with a version-free name.  No link on GitHub uses
+// it: update.json and the README badge both point at the versioned asset,
+// because /releases/latest/download/PianoMax.zip only resolves while the
+// *latest* release happens to carry an asset with that exact name -- the
+// beta.5 release does not, so that URL 404s.
 fs.writeFileSync(path.join(root, "release", "PianoMax.zip"), blob);
 console.log("built " + path.relative(root, out) + " (" + fs.statSync(out).size + " bytes, " + files.length + " entries)");
