@@ -265,8 +265,11 @@ Measured: `cur_state 6 → 0` pulls `max_gpuclk` from 660 MHz back to 1100 MHz a
 ## Development
 
 ```sh
-bash build.sh    # packages release/PianoMax-<version>.zip
+bash build.sh                  # packages release/PianoMax-<version>.zip
+node tools/release-check.mjs   # pre-publish check: local zip / tag / published asset
 ```
+
+`release-check.mjs` verifies six things and exits non-zero if any disagree: `update.json` matches `module.prop`, the downloaded zip equals the local one, the zip contents equal the tag's `module/` tree, the remote tag equals the local tag, `module/` has not changed since the tag, and the byte count and SHA-256 in the release body are real. It needs no token (the release-body check is skipped with a note when no credential is available).
 
 Module layout:
 

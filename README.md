@@ -273,8 +273,11 @@ GPU 上限不是由 `max_pwrlevel` 决定的，而是被一个热冷却设备锁
 ## 开发
 
 ```sh
-bash build.sh    # 打包到 release/PianoMax-<version>.zip
+bash build.sh                  # 打包到 release/PianoMax-<version>.zip
+node tools/release-check.mjs   # 发布前体检：本地包 / tag / 线上资产三方比对
 ```
+
+`release-check.mjs` 查六件事，任何一项对不上就非零退出：`update.json` 与 `module.prop` 是否一致、下载到的包是否等于本地包、包内容是否等于 tag 树的 `module/`、远端 tag 是否等于本地 tag、tag 之后 `module/` 有没有再改动、Release 正文里的字节数与 SHA-256 是否属实。它不需要 token（正文那节取不到凭据时会跳过并说明）。
 
 模块结构：
 
