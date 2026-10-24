@@ -36,9 +36,6 @@ T_ROOT=/data/vendor/thermal
 T_SRC="$PM_DIR/thermal"
 T_STAMP="$PM_DIR/.thermal_mode"
 
-# One-time snapshot of every table the vendor shipped, encrypted and all.
-# Without this the revert path is fiction, so the swap refuses to run until
-# it has a capture from this boot.
 # Is this file byte-identical to one of the module's own preset tables?
 #
 # The four call sites below used to answer with `grep -q "$h" module/thermal/*/*.conf`,
@@ -83,6 +80,10 @@ pm_stat_sig() {
 #   2. T_DIR/<name>           -- only when the ROM keeps it nowhere else
 #   3. absent                 -- recorded as such so revert deletes our copy
 T_VENDOR=/odm/etc
+
+# One-time snapshot of every table the vendor shipped, encrypted and all.
+# Without this the revert path is fiction, so the swap refuses to run until
+# it has a capture from this boot.
 pm_thermal_capture() {
     [ -d "$T_DIR" ] || { pm_log "thermal: no config dir, table swap unavailable"; return 1; }
     # A marker without a populated snapshot is worse than no marker: the
