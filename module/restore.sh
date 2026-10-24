@@ -174,6 +174,13 @@ echo 1 > /proc/sys/vm/compact_memory 2>/dev/null
 # Factory includes the thermal policy: a swapped table would keep enforcing
 # preset behavior with the module gone.  Runs last so the daemon reload
 # happens after every sysfs node is already back.
+#
+# The immutable bit is cleared before the capture check inside revert, and
+# again here unconditionally, for the same reason uninstall.sh does it: an
+# update that lost .thermal_captured still leaves the old table pinned in
+# T_DIR, and every path that hands the device back to factory must be able to
+# release it.
+chattr -R -i /data/vendor/thermal/config 2>/dev/null
 if [ -f "$PM_DIR/lib/thermal.sh" ]; then
     . "$PM_DIR/lib/thermal.sh"
     pm_thermal_revert

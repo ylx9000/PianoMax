@@ -30,7 +30,7 @@ Four presets — Power save / Balanced / Performance / Extreme. Each preset is a
 
 <div align="center">
 
-[![Download](https://img.shields.io/badge/Download-PianoMax.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.4/PianoMax-v1.0.0-beta.4.zip)
+[![Download](https://img.shields.io/badge/Download-PianoMax.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip)
 
 </div>
 
@@ -261,7 +261,7 @@ Measured: `cur_state 6 → 0` pulls `max_gpuclk` from 660 MHz back to 1100 MHz a
 
 - msm-adreno-tz re-latches the GPU at any time; the daemon re-releases it every second and readings dip briefly right after a re-latch.
 - On Extreme, sustained full load reaches the 105 °C silicon tripwire within 4-8 seconds — a physical constraint, not a defect; use Performance for sustained loads.
-- Heavy memory stress can still trigger kernel OOM on the 8 GB model. The launcher and SystemUI carry `oom_score_adj` protection and will not be picked, but background processes may be reclaimed.
+- Heavy memory stress can still trigger kernel OOM on the 8 GB model. Background processes are reclaimed first; whether the launcher survives is decided by the system's own adj calculation — this module **no longer rewrites** the launcher's or SystemUI's `oom_score_adj` (removed in beta.4, see CHANGELOG).
 - Full-speed power draw is significantly higher; use the original charger.
 
 ## Development

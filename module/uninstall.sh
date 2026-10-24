@@ -32,6 +32,16 @@ done
 # "factory values restored" and our table in charge.  Reuse the checked path
 # with no argument (pm_thermal_revert takes none) so the no-block rule survives (the revert's own comment
 # explains why 2 is enough for the delete-right-after case).
+#
+# The immutable bit is cleared unconditionally, before that guard.  A KSU
+# update replaces the module directory, which loses .thermal_captured and
+# .thermal_orig while the previous build's table can still be sitting in
+# T_DIR with +i on it.  The old order skipped the revert entirely in that
+# case, and with the module gone nothing was left that could clear the bit --
+# the vendor directory stayed locked against cloud control with no uninstall
+# path to undo it.  One idempotent -i costs nothing on the paths where the
+# directory is already writable.
+chattr -R -i /data/vendor/thermal/config 2>/dev/null
 if [ -d "$PM_DIR/.thermal_orig" ] && [ -n "$(ls "$PM_DIR/.thermal_orig" 2>/dev/null)" ]; then
     . "$PM_DIR/lib/thermal.sh"
     pm_thermal_revert 2

@@ -30,7 +30,7 @@
 
 <div align="center">
 
-[![下载最新版](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-PianoMax.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.4/PianoMax-v1.0.0-beta.4.zip)
+[![下载最新版](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-PianoMax.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip)
 
 </div>
 
@@ -269,7 +269,7 @@ GPU 上限不是由 `max_pwrlevel` 决定的，而是被一个热冷却设备锁
 
 - GPU 锁存可能随时被 `msm-adreno-tz` 重新锁上。释放有效但会再次锁存，守护进程每秒检查一次；刚锁存后的数秒内读数短暂偏低。
 - 极限档持续满载约 4-8 秒硅温到达 105 °C 绊线并自动降档——这是物理约束，不是缺陷；长时间满载建议使用性能档。
-- 8 GB 内存运行重度内存测试仍可能触发内核 OOM。桌面与 SystemUI 有 `oom_score_adj` 保护不会被选中，后台进程可能被回收。
+- 8 GB 内存运行重度内存测试仍可能触发内核 OOM。后台进程先被回收，桌面是否存活由系统的 adj 计算决定——本模块**不再改写**桌面与 SystemUI 的 `oom_score_adj`（beta.4 起移除，见 CHANGELOG）。
 - 满频功耗显著上升，建议使用原装充电器。
 
 ## 开发

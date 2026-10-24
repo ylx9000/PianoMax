@@ -112,10 +112,15 @@ disable_compute_zones() {
 # makes stop a no-op, and perfd can still be re-spawned by property triggers
 # -- the guard's own re-pin loop remains the real keeper.
 pin_boost_daemons() {
-    stop perfd 2>/dev/null && pm_log "perfd stopped (boost path quiet)" || true
-    # vendor init may name it perfd.dyn or qti-perfd; sweep the aliases.
-    for svc in perfd.dyn qti-perfd perf-l2; do
-        stop "$svc" 2>/dev/null || true
+    # Log per daemon and only when it was actually running.  setprop ctl.stop
+    # succeeds for a service the ROM never defined, so the old
+    # "stop perfd && pm_log" printed "perfd stopped" on every apply of every
+    # device, including the ones that have no perfd at all -- a log line that
+    # reads as proof of work that never happened.
+    for svc in perfd perfd.dyn qti-perfd perf-l2; do
+        [ "$(getprop "init.svc.$svc" 2>/dev/null)" = "running" ] || continue
+        stop "$svc" 2>/dev/null || continue
+        pm_log "boost daemon $svc stopped"
     done
 }
 

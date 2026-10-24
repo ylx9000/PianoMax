@@ -1,7 +1,7 @@
 id=pianomax
 name=PianoMax
-version=v1.0.0-beta.4
-versionCode=5
+version=v1.0.0-beta.5
+versionCode=6
 author=夜
-description=小米平板 8 Pro（piano / SM8750P）频率调度模块。CPU 3532800/4320000、GPU 1100MHz、DDR 4761000、LLCC 1211000，均取 SoC 规格上限；守护进程实时顶回被温控压下的频率，越过档位温度绊线自动分级降档并自愈。不停 mi_thermald，硬件保护温区不碰。四档预设（省电/均衡/性能/极限），附带内存回收、前台 OOM 保护、默认关闭的四档温度伪装与可调 WebUI。
+description=小米平板 8 Pro（piano / SM8750P）频率调度模块。CPU 3532800/4320000、GPU 1100MHz、DDR 4761000、LLCC 1211000，均取 SoC 规格上限；守护进程实时顶回被温控压下的频率，越过档位温度绊线自动分级降档并自愈。不停 mi_thermald，硬件保护温区不碰。四档预设（省电/均衡/性能/极限），附带内存回收、默认关闭的四档温度伪装与可调 WebUI。
 updateJson=https://raw.githubusercontent.com/ylx9000/PianoMax/main/update.json

@@ -17,9 +17,18 @@
 . "$(dirname "$0")/lib/apply.sh"
 
 # Mirror of thermal.sh's T_ROOT: the table gate below reads the daemon's
-# decrypt.txt there.  Kept literal instead of sourcing thermal.sh, whose
-# swap/revert side effects must never run from inside the guard loop.
+# decrypt.txt there.  Kept literal instead of sourcing thermal.sh: sourcing
+# only defines constants and functions today, but it is the file that owns
+# table swap and revert, and an edit there must not be able to acquire side
+# effects inside the guard loop by accident.
 T_ROOT=/data/vendor/thermal
+
+# Deliberately empty.  There is no correct fixed adj for a managed app (see
+# the launcher block below), so this is the off switch, not a tunable: the
+# assignment exists so the sweep branches cleanly and so anyone reading the
+# config cannot mistake its absence for an oversight.  Setting it to a value
+# makes the guard fight AMS for that process, which is the bug, not the fix.
+PM_LAUNCHER_PIN=""
 
 # Put the ceiling back to the full spec.  Called on re-arm so a stale staged
 # value does not survive a full restore.
@@ -658,11 +667,26 @@ while true; do
                 *) continue ;;
             esac
             adj=""; IFS= read -r adj < "$p/oom_score_adj" 2>/dev/null
-            # DIAGNOSTIC BUILD: writing -1000 on a user app fights the adj that
-            # ActivityManager computes for it, and the process then gets killed
-            # (am_proc_died reason=2) roughly every 1.5 s -- that is the 2026-10-23
-            # launcher restart loop.  The scan and its readout stay; the write is
-            # gated behind PM_LAUNCHER_PIN and is off unless it is set explicitly.
+            # The scan and its readout stay; the write is off by default.
+            #
+            # The value cannot be chosen by the module at all: AOSP ProcessList
+            # defines -1000 as NATIVE_ADJ, "special code for native processes
+            # that are not being managed by the system (so don't have an oom adj
+            # assigned by the system)", with SYSTEM_ADJ at -900.  A launcher is
+            # a managed app, so no fixed value exists that is correct for it --
+            # AMS recomputes the adj from the app's foreground/visible state
+            # (FOREGROUND_APP_ADJ is 0) and simply writes its own value back,
+            # so a pin here is a write war at 5 s per side, not a protection.
+            #
+            # What was actually observed on this device: the 2026-10-23 launcher
+            # restart loop.  What was NOT observed: any logcat evidence tying it
+            # to this write.  The old comment asserted a mechanism that no
+            # capture supports; this one states the constant and leaves the
+            # diagnosis to the device (see CHANGELOG beta.4/beta.5).
+            #
+            # PM_LAUNCHER_PIN is declared empty at the top of this file, so the
+            # branch below is dead by construction.  It stays because removing
+            # the scan would also remove the only readout of what AMS assigned.
             if [ -n "$adj" ] && [ "$adj" != "-1000" ] && [ -n "$PM_LAUNCHER_PIN" ]; then
                 echo "$PM_LAUNCHER_PIN" > "$p/oom_score_adj" 2>/dev/null
                 pm_log "launcher pin: ${p##*/} ($c) adj $adj -> $PM_LAUNCHER_PIN"

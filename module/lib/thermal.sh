@@ -21,6 +21,15 @@
 # /vendor/etc.  Verified against the running daemon through decrypt.txt,
 # which always names the table it loaded last.
 T_DIR=/data/vendor/thermal/config
+# Whether the immutable-bit tool exists at all.  Not every toybox build ships
+# chattr/lsattr, and the module's own +i calls are all silenced with
+# 2>/dev/null -- on a ROM without it the "cloud control cannot overwrite the
+# table" guarantee would simply not exist while every log line still claimed
+# it did.  Probed once here and reported by piano_diag.sh, so the claim is
+# checkable from the device instead of assumed from the build.
+PM_CHATTR=""
+if command -v chattr >/dev/null 2>&1; then PM_CHATTR=1; fi
+export PM_CHATTR
 T_ROOT=/data/vendor/thermal
 # Our encrypted variants live inside the module; the directory doubles as
 # the marker that the feature is installed at all.
@@ -30,6 +39,27 @@ T_STAMP="$PM_DIR/.thermal_mode"
 # One-time snapshot of every table the vendor shipped, encrypted and all.
 # Without this the revert path is fiction, so the swap refuses to run until
 # it has a capture from this boot.
+# Is this file byte-identical to one of the module's own preset tables?
+#
+# The four call sites below used to answer with `grep -q "$h" module/thermal/*/*.conf`,
+# which greps the hash STRING against the table's CONTENT.  A hex digest is not
+# a substring of the ciphertext it describes, so the answer was always "no".
+# Every one of those checks existed to stop the module mistaking its own table
+# for a vendor table, and every one of them was dead: contaminated snapshots
+# were captured, and "revert" would faithfully restore our own policy.  Compare
+# digests on both sides instead -- one md5sum per candidate, same cost.
+pm_is_own_table() {
+    _pio=$1
+    [ -f "$_pio" ] || return 1
+    _pioh=$(md5sum "$_pio" 2>/dev/null | cut -d' ' -f1)
+    [ -n "$_pioh" ] || return 1
+    for _piot in "$T_SRC"/*/*.conf; do
+        [ -f "$_piot" ] || continue
+        [ "$(md5sum "$_piot" 2>/dev/null | cut -d' ' -f1)" = "$_pioh" ] && return 0
+    done
+    return 1
+}
+
 # Stat signature for reload detection: stat -c %Y is second-granular,
 # so a daemon that rewrites decrypt.txt inside the same second as the
 # restart still looks "unchanged" and verify reports a false negative.
@@ -80,12 +110,10 @@ pm_thermal_capture() {
         [ -f "$PM_DIR/.thermal_orig/$b" ] && continue
         # Skip anything that is byte-identical to one of our own preset
         # tables -- that is not a vendor table, whatever directory it is in.
-        h=$(md5sum "$f" 2>/dev/null | cut -d' ' -f1)
-        [ -n "$h" ] || continue
-        grep -q "$h" "$T_SRC"/*/*.conf 2>/dev/null && {
+        if pm_is_own_table "$f"; then
             pm_log "thermal: skipped our own table in $b during capture"
             continue
-        }
+        fi
         cp "$f" "$PM_DIR/.thermal_orig/$b" 2>/dev/null && n=$((n + 1))
     done
     # Permissions and context belong to the snapshot too: a restore that
@@ -140,7 +168,15 @@ pm_thermal_swap() {
         chown root:system "$T_DIR/$(basename "$f")" 2>/dev/null
     done
     if [ "$cp_ok" != "1" ]; then
-        pm_log "thermal: swap copy failed for $mode, stamp NOT written, keeping previous table"
+        # The old table is already half-overwritten at this point, so neither
+        # "previous table" nor "new table" describes what is in T_DIR now.
+        # Wipe the stamp as well: leaving it behind left the guard's table
+        # gate reading a mode and an install time that belonged to a table
+        # that is no longer whole, and it would hand the ceiling to a daemon
+        # enforcing a half-copied policy.  No stamp means guard re-pins,
+        # which is the safe state.
+        rm -f "$T_STAMP" "$PM_DIR/.thermal_ts"
+        pm_log "thermal: swap copy failed for $mode, stamp cleared -- guard keeps re-pinning"
         return 1
     fi
     restorecon -DFR "$T_DIR" 2>/dev/null
@@ -197,8 +233,7 @@ pm_thermal_revert() {
         chattr -R -i "$T_DIR" 2>/dev/null
         for f in "$T_DIR"/*.conf; do
             [ -f "$f" ] || continue
-            h=$(md5sum "$f" | cut -d' ' -f1)
-            if grep -q "$h" "$PM_DIR"/thermal/*/*.conf 2>/dev/null; then
+            if pm_is_own_table "$f"; then
                 rm -f "$f"
                 pm_log "thermal: removed our pinned table $(basename "$f")"
             fi
@@ -215,8 +250,7 @@ pm_thermal_revert() {
     for f in "$PM_DIR/.thermal_orig"/*; do
         [ -f "$f" ] || continue
         b=$(basename "$f")
-        h=$(md5sum "$f" 2>/dev/null | cut -d' ' -f1)
-        if [ -n "$h" ] && grep -q "$h" "$T_SRC"/*/*.conf 2>/dev/null; then
+        if pm_is_own_table "$f"; then
             pm_log "thermal: dropping contaminated snapshot entry $b"
             rm -f "$f"
             continue
@@ -250,7 +284,12 @@ pm_thermal_revert() {
             pm_log "thermal: removed non-vendor table $(basename "$f")"
         }
     done
-    rm -f "$T_STAMP"
+    # .thermal_ts goes with the stamp.  Leaving it behind is harmless for the
+    # gate (which requires both) but it survives into the next boot as a
+    # timestamp that refers to no installed table, and the next swap would
+    # write a fresh one anyway -- a stale file whose only effect is to make
+    # "re-pin mode" look like it once had a table.
+    rm -f "$T_STAMP" "$PM_DIR/.thermal_ts"
     restorecon -DFR "$T_DIR" 2>/dev/null
     tb=$(pm_stat_sig "$T_ROOT/decrypt.txt")
     setprop ctl.restart mi_thermald 2>/dev/null || { stop mi_thermald 2>/dev/null; start mi_thermald 2>/dev/null; }

@@ -58,28 +58,58 @@ else
 fi
 
 hdr "3. thermal table ownership"
+# The immutable bit belongs to this section because it is part of the claim
+# the module makes about this directory: cloud control cannot overwrite the
+# table.  chattr is absent on some toybox builds and every +i call in
+# thermal.sh is silenced, so without a check here the guarantee could be
+# missing on a device whose log still reads as if it held.
+if command -v chattr >/dev/null 2>&1; then
+    if command -v lsattr >/dev/null 2>&1; then
+        # toybox and e2fsprogs both print the flags first, but the field
+        # widths are not guaranteed identical across vendor builds, so match
+        # the flag run rather than a fixed column: the immutable bit is the
+        # fifth character in the standard layout, and "no i anywhere before
+        # the path" is the answer that matters.
+        _line=$(lsattr -d /data/vendor/thermal/config 2>/dev/null)
+        case "$_line" in
+            ????i*) say_ok "override dir carries the immutable bit (cloud control cannot overwrite it)" ;;
+            "")     say_warn "lsattr returned nothing for the override dir -- cannot confirm the immutable bit" ;;
+            *)      say_warn "override dir is NOT immutable (lsattr: $_line) -- joyose/powerkeeper can rewrite the table" ;;
+        esac
+    else
+        say_warn "lsattr missing -- cannot confirm the immutable bit (chattr present)"
+    fi
+else
+    say_warn "chattr missing on this ROM -- the table cannot be pinned; cloud control may overwrite it"
+fi
 if [ -f "$PM_DIR/.thermal_mode" ]; then
     MODE=$(cat "$PM_DIR/.thermal_mode")
-    say_ok "thermal table in charge: $MODE (stamp present)"
+    say_ok "thermal stamp present: $MODE"
     if [ -f /data/vendor/thermal/decrypt.txt ]; then
         SZ=$(stat -c %s /data/vendor/thermal/decrypt.txt 2>/dev/null)
-        say_ok "decrypt.txt live, $SZ bytes (daemon is serving our table)"
-        # Freshness: decrypt must be at or after .thermal_ts, the second the
-        # swap bounced the daemon.  An older decrypt means the daemon never
-        # re-read our table and the guard will (correctly) ignore the stamp.
+        say_ok "decrypt.txt live, $SZ bytes"
+        # The stamp is what the module believes; this block reports what the
+        # guard is actually doing with it.  They disagree in two real states
+        # -- daemon never re-read, or no install-time reference -- and in
+        # both the guard re-pins.  Calling that "table in charge" would be
+        # the same half-truth the old one-line check was.
         if [ -f "$PM_DIR/.thermal_ts" ]; then
             TS_M=$(stat -c %Y "$PM_DIR/.thermal_ts" 2>/dev/null)
             DT_M=$(stat -c %Y /data/vendor/thermal/decrypt.txt 2>/dev/null)
             if [ -n "$TS_M" ] && [ -n "$DT_M" ]; then
                 if [ "$DT_M" -ge "$TS_M" ]; then
-                    say_ok "decrypt.txt fresh (>= table install time) -- guard may hand the ceiling to the table"
+                    say_ok "table in charge ($MODE) -- guard handed the ceiling to the daemon"
                 else
-                    say_warn "decrypt.txt older than table install -- daemon did not re-read; guard is re-pinning instead"
+                    say_warn "table installed but daemon did not re-read -- guard is re-pinning instead (ceiling still held)"
                 fi
+            else
+                say_warn "install-time reference unreadable -- guard is re-pinning instead (ceiling still held)"
             fi
+        else
+            say_warn "no .thermal_ts reference -- guard is re-pinning instead (ceiling still held)"
         fi
     else
-        say_fail "stamp present but decrypt.txt missing -- daemon never reloaded?"
+        say_fail "stamp present but decrypt.txt missing -- daemon never reloaded; guard is re-pinning"
     fi
     # Cross-check the deployed table bytes against the module copy.  The
     # earlier version only printed the module-side md5, which could never fail
@@ -98,7 +128,22 @@ if [ -f "$PM_DIR/.thermal_mode" ]; then
         fi
     fi
 else
-    say_warn "no .thermal_mode stamp -- running in re-pin mode (stock table)"
+    # No stamp means "never swapped" (stock table, re-pin mode) or "swap
+    # failed after copying" (our bytes sit in T_DIR and the guard is
+    # re-pinning over them).  Different problems -- look before labelling.
+    _deployed=$(md5sum /data/vendor/thermal/config/thermal-normal.conf 2>/dev/null | cut -d' ' -f1)
+    _ours=no
+    if [ -n "$_deployed" ]; then
+        for _cand in "$PM_DIR"/thermal/*/*.conf; do
+            [ -f "$_cand" ] || continue
+            if [ "$(md5sum "$_cand" 2>/dev/null | cut -d' ' -f1)" = "$_deployed" ]; then _ours=yes; break; fi
+        done
+    fi
+    if [ "$_ours" = "yes" ]; then
+        say_warn "no stamp but OUR table is deployed -- swap failed after the copy; guard is re-pinning (ceiling still held). Re-select the preset to repair"
+    else
+        say_ok "no table deployed -- running in re-pin mode on the stock table"
+    fi
 fi
 THERM=$(getprop init.svc.mi_thermald)
 [ "$THERM" = "running" ] && say_ok "mi_thermald running" || say_fail "mi_thermald state: $THERM"
