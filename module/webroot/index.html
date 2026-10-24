@@ -973,8 +973,11 @@ function render(d) {
     var g0 = parseInt(d.p_target ? d.p_target.split(" ")[0] : "3532800", 10);
     var g6 = parseInt(d.p_target ? d.p_target.split(" ")[1] : "4320000", 10);
     if ((!isNaN(t0) && t0 < g0) || (!isNaN(t6) && t6 < g6)) {
-      setVerdict("nocpu", "设定 " + (g0 / 1000).toFixed(2) + " / " + (g6 / 1000).toFixed(2) +
-        " GHz，实际上限 " + (t0 / 1000).toFixed(2) + " / " + (t6 / 1000).toFixed(2) + " GHz。");
+      // p_target and max0/max6 are kHz (scaling_max_freq units): divide by
+      // 1e6 for GHz.  The old /1000 produced MHz labelled "GHz", so the
+      // mismatch banner on the extreme preset read "设定 3532.80 GHz".
+      setVerdict("nocpu", "设定 " + (g0 / 1000000).toFixed(2) + " / " + (g6 / 1000000).toFixed(2) +
+        " GHz，实际上限 " + (t0 / 1000000).toFixed(2) + " / " + (t6 / 1000000).toFixed(2) + " GHz。");
     } else {
       setVerdict("on");
     }
@@ -1094,13 +1097,18 @@ function render(d) {
       // gpu is the live clock (idle-locked, identical on every preset) and
       // gpu_hw is the hardware maximum (constant).  Only gpu_cap shows what a
       // preset switch did to the GPU, so it gets its own row.
-      ["GPU 上限", (d.gpu_cap ? (parseInt(d.gpu_cap, 10) / 1000000) + " MHz" : "-") + (d.gpu_lvl !== undefined ? "（档位 " + d.gpu_lvl + "）" : "")],
-      ["GPU 硬顶", d.gpu_hw ? (parseInt(d.gpu_hw, 10) / 1000000) + " MHz" : "-"],
+      // gpu_cap / gpu_hw are kHz (kgsl ladder units): /1e6 gives GHz.  The
+      // old label said "MHz" while the value was already in GHz, so this row
+      // displayed "1.1 MHz" on a 1100 MHz ceiling.
+      ["GPU 上限", (d.gpu_cap ? (parseInt(d.gpu_cap, 10) / 1000000).toFixed(2) + " GHz" : "-") + (d.gpu_lvl !== undefined ? "（档位 " + d.gpu_lvl + "）" : "")],
+      ["GPU 硬顶", d.gpu_hw ? (parseInt(d.gpu_hw, 10) / 1000000).toFixed(2) + " GHz" : "-"],
       // dev diagnostics surfaced from the guard's own state files (d_* keys),
       // so a trip decision can be checked against the UI without adb.
       // .stage holds the staged ceiling (two frequencies), not an ordinal:
       // the guard writes "$NA $NB" (guard.sh:403/443/483).
-      ["降档目标", (d.p_stage === undefined || d.p_stage === "-") ? "无" : d.p_stage.split(" ").map(function (x) { return (parseInt(x, 10) / 1000).toFixed(2); }).join(" / ") + " GHz"],
+      // .stage holds kHz values ($NA $NB from the ladder): /1e6 for GHz.
+      // The old /1000 printed MHz digits under a "GHz" label.
+      ["降档目标", (d.p_stage === undefined || d.p_stage === "-") ? "无" : d.p_stage.split(" ").map(function (x) { return (parseInt(x, 10) / 1000000).toFixed(2); }).join(" / ") + " GHz"],
       ["温度绊线", d.d_trip ? d.d_trip.replace(" ", " / ") + " mC" : "-"],
       ["伪装档位", d.d_spoof_tier || "-"]
     ]);
@@ -1236,11 +1244,15 @@ try {
 // ---------- presets ----------
 // Four bundles.  Each one writes the same files the sliders write, so a
 // preset and a manual edit never disagree about what is in force.
+// Button label shape: "小核G/大核G · DDR"。  Two numbers, not one -- the old
+// single "3.53G" was the LITTLE-cluster ceiling and read as if the extreme
+// preset capped the whole SoC there, hiding the 4.32 GHz prime pair the
+// preset actually pins.  Both numbers come straight from presets.txt.
 var PROFILES = [
-  { k: "powersave",   n: "省电", d: "1.56G · 1353" },
-  { k: "balanced",    n: "均衡", d: "2.40G · 3187" },
-  { k: "performance", n: "性能", d: "3.07G · 4224" },
-  { k: "extreme",     n: "极限", d: "3.53G · 4761" }
+  { k: "powersave",   n: "省电", d: "1.56/1.96G · 1353" },
+  { k: "balanced",    n: "均衡", d: "2.40/2.84G · 3187" },
+  { k: "performance", n: "性能", d: "3.07/3.51G · 4224" },
+  { k: "extreme",     n: "极限", d: "3.53/4.32G · 4761" }
 ];
 
 // Pull the preset table from the module and rewrite the labels.  The
@@ -1261,10 +1273,14 @@ function refreshProfiles() {
       var t = PROFILES.find(function (x) { return x.k === p[0]; });
       if (!t) return;
       if (p[1]) t.n = p[1];
-      // Same shape the built-in rows use: two decimals of GHz, integer MHz.
-      var ghz = (Number(p[2]) / 1000000).toFixed(2);
-      var mhz = Math.round(Number(p[5]) / 1000000).toString();
-      t.d = ghz + "G · " + mhz;
+      // Same shape the built-in rows use: little/prime GHz pair, integer DDR
+      // MHz.  p[2] is cpu0 (little), p[3] is cpu6 (prime), p[5] is DDR in kHz
+      // so /1000 gives MHz (4761000 -> "4761").  The old label divided DDR by
+      // 1e6 too, which rendered the extreme button as "3.53G · 5".
+      var g0 = (Number(p[2]) / 1000000).toFixed(2);
+      var g6 = (Number(p[3]) / 1000000).toFixed(2);
+      var mhz = Math.round(Number(p[5]) / 1000).toString();
+      t.d = g0 + "/" + g6 + "G · " + mhz;
     });
     buildProfiles();
   }, function () { /* bridge failure: keep built-in labels */ });
