@@ -162,6 +162,23 @@ echo "  hw tops: $HW0 / $HW6"
 if [ "$A0" -lt "$HW0" ] && [ ! -f "$PM_DIR/.thermal_mode" ]; then
     say_warn "ceiling below hw top without an owned table -- daemon or someone else is clamping"
 fi
+# Prime-pair clamp attribution.  The signature question: the preset pins 4320,
+# a detector app shows 3801 -- who wrote that number?  4320000 * 88% = 3801600,
+# our own stage 1, so the stage file is checked first; cpu_limits vs scaling
+# disagreement names the writer when it is not us.
+if [ -n "$HW6" ] && [ "$A6" -lt "$HW6" ]; then
+    STV=$(cat "$PM_DIR/.stage" 2>/dev/null)
+    ST6=$(echo $STV | cut -d' ' -f2)
+    LIM6=$(cat "$TM/cpu_limits" 2>/dev/null)
+    case "$ST6" in
+        "$A6") say_warn "prime clamped to $A6 kHz by OUR back-off (stage: $STV) -- not a fault, cools down automatically" ;;
+        *)
+            case "$LIM6" in
+                "$A6") say_warn "prime clamped to $A6 kHz via cpu_limits -- mi_thermald or cloud control is enforcing (scaling says $A6, limits say $LIM6)" ;;
+                *) say_warn "prime clamped to $A6 kHz, source unresolved (stage: ${STV:-none}, cpu_limits: ${LIM6:-unreadable})" ;;
+            esac ;;
+    esac
+fi
 # freezer check: a frozen guard cannot hold anything
 DIAGPID=${LOCKPID:-$(echo $GPIDS | cut -d' ' -f1)}
 CG=""

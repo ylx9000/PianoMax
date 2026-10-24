@@ -113,16 +113,29 @@ cmd_set() {
             # Snap to a ladder entry before persisting.  Storing a number the
             # kernel will round means .target never matches the readback, and
             # the guard then re-writes cpu_limits on every tick forever.
+            #
+            # Exact match first, nearest-rung only as fallback.  Under thermal
+            # pressure the kernel shrinks scaling_available_frequencies, and
+            # the old unconditional nearest-rung snap then MOVED the request:
+            # a slider push of 2985600 snapped to 2918400 (the nearest rung
+            # the shrunken ladder still listed) and the .target file silently
+            # recorded a value one rung below what the slider showed.
             if [ "$k" = "cpu_max0" ]; then
                 [ "$v" -ge 556800 ] && [ "$v" -le 3532800 ] || { echo "err:out_of_range"; exit 2; }
-                v=$(pm_step_down "$CFG/policy0" "$v" 100)
+                case " $(pm_ladder "$CFG/policy0" 2>/dev/null) " in
+                    *" $v "*) ;;  # exact rung: keep the request untouched
+                    *) v=$(pm_step_down "$CFG/policy0" "$v" 100) ;;
+                esac
                 # Base, not target: during a thermal back-off the target holds
                 # the staged value.  Writing it here would freeze the temporary
                 # stage into the new permanent ceiling.
                 b6=$(pm_base6); echo "$v $b6" > "$PM_TARGET"
             else
                 [ "$v" -ge 1017600 ] && [ "$v" -le 4320000 ] || { echo "err:out_of_range"; exit 2; }
-                v=$(pm_step_down "$CFG/policy6" "$v" 100)
+                case " $(pm_ladder "$CFG/policy6" 2>/dev/null) " in
+                    *" $v "*) ;;
+                    *) v=$(pm_step_down "$CFG/policy6" "$v" 100) ;;
+                esac
                 b0=$(pm_base0); echo "$b0 $v" > "$PM_TARGET"
             fi
             # Clear the back-off BEFORE computing the hold values: pm_hold0/6

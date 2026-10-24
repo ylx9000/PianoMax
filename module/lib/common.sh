@@ -480,17 +480,37 @@ pm_profile_name() {
 # tick (pm_hold0/6) plus twice more per back-off.  One cat per policy per boot
 # instead of two per second forever.  The cache file is keyed by policy so a
 # ROM update that ships new rungs invalidates naturally on reboot.
+#
+# A cached ladder is only trusted when it still contains the policy's
+# cpuinfo_max_freq.  Under sustained thermal pressure the kernel shrinks
+# scaling_available_frequencies, and a ladder captured during that window
+# lost its top rungs permanently: the extreme preset then snapped to
+# 2918400 instead of 3532800 (measured 2026-10-25, silicon at 89.9 C), and
+# every slider push landed one rung low until the cache was deleted by
+# hand.  Missing hw-top in a cache means "captured under pressure" --
+# re-read live, and cache only ladders that carry the full top.
 pm_ladder() {
     _pl_dir=$1
     _pl_key=${_pl_dir##*/}
     _pl_cache="$PM_DIR/.ladder-$_pl_key"
+    _pl_hw=$(cat "$_pl_dir/cpuinfo_max_freq" 2>/dev/null)
     _pl=""
     if [ -s "$_pl_cache" ]; then
         IFS= read -r _pl < "$_pl_cache" 2>/dev/null
+        # Shrunken cache: drop it and fall through to the live read.
+        case " $_pl " in
+            *" $_pl_hw "*) ;;
+            *) _pl=""; rm -f "$_pl_cache" 2>/dev/null ;;
+        esac
     fi
     if [ -z "$_pl" ]; then
         _pl=$(cat "$_pl_dir/scaling_available_frequencies" 2>/dev/null)
-        [ -n "$_pl" ] && echo "$_pl" > "$_pl_cache" 2>/dev/null
+        # Cache only a complete ladder: a missing hw-top is the thermal
+        # shrink signature, and caching that would pin the loss for the
+        # rest of the boot.
+        case " $_pl " in
+            *" $_pl_hw "*) echo "$_pl" > "$_pl_cache" 2>/dev/null ;;
+        esac
     fi
     echo "$_pl"
 }

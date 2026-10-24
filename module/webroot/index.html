@@ -955,8 +955,17 @@ function render(d) {
   else if (d.state === "off") setVerdict("off");
   // hold = on|hot|cool|tripped <which>; the guard writes it into .state.
   else if (String(d.hold || "").indexOf("tripped") === 0) setVerdict("tripped");
-  else if (String(d.hold || "").indexOf("backoff") === 0)
-    setVerdict("hot", "已降档运行（" + String(d.hold).split(" ")[1] + "），温度回落会自动升回。");
+  else if (String(d.hold || "").indexOf("backoff") === 0) {
+    // Name the enforced ceiling, not just the stage ordinal: the extreme
+    // preset's stage 1 pins the prime pair at 3801 MHz while the little
+    // cluster stays near its 3532 cap, and "the UI said 4.32 but the device
+    // runs 3.80" is exactly the confusion this line exists to end.
+    var stv = (d.p_stage || "").split(" ");
+    var stTxt = (stv.length === 2 && !isNaN(parseInt(stv[0], 10)))
+      ? "，当前上限 " + (parseInt(stv[0], 10) / 1000000).toFixed(2) + " / " + (parseInt(stv[1], 10) / 1000000).toFixed(2) + " GHz"
+      : "";
+    setVerdict("hot", "过温降档中（" + String(d.hold).split(" ")[1] + "级）" + stTxt + "，温度回落会自动升回。");
+  }
   // Order matters: a spoofed device can still be approaching a tripwire on the
   // chassis side, and that warning is more actionable than the degradation
   // notice, so the temperature checks come first.  The spoof branch only
@@ -978,6 +987,14 @@ function render(d) {
       // mismatch banner on the extreme preset read "设定 3532.80 GHz".
       setVerdict("nocpu", "设定 " + (g0 / 1000000).toFixed(2) + " / " + (g6 / 1000000).toFixed(2) +
         " GHz，实际上限 " + (t0 / 1000000).toFixed(2) + " / " + (t6 / 1000000).toFixed(2) + " GHz。");
+    } else if (!isNaN(t6) && !isNaN(c6) && c6 < t6 - 200000 && String(d.hold || "").indexOf("backoff") !== 0) {
+      // Scaling says the preset ceiling is in force and no stage is active,
+      // yet the prime cluster runs far below it.  That is thermal pressure
+      // (kernel cpufreq cooling / mi_thermald) clamping inside our ceiling --
+      // measured on 2026-10-25: silicon 89.9 C, prime pinned at 3.8 GHz
+      // while every node we own read the full 4.32.  Saying "on" here is
+      // what made the WebUI and detector apps disagree.
+      setVerdict("hot", "内核热限正在压大核（当前 " + (c6 / 1000000).toFixed(2) + " / 上限 " + (t6 / 1000000).toFixed(2) + " GHz），降温后自动恢复。");
     } else {
       setVerdict("on");
     }

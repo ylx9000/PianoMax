@@ -418,6 +418,15 @@ while true; do
                 echo "$NA $NB" > "$PM_STAGE"
                 for i in 0 1 2 3 4 5; do echo "cpu$i $NA" > "$TM/cpu_limits" 2>/dev/null; done
                 for i in 6 7; do echo "cpu$i $NB" > "$TM/cpu_limits" 2>/dev/null; done
+                # scaling_max_freq moves with the stage.  cpu_limits alone is
+                # invisible to anything reading scaling_max_freq / cur_freq --
+                # under TABLE_IN_CHARGE the hold block skips, so the enforced
+                # stage showed in cpu_limits while scaling_max_freq (and every
+                # detector app reading it) still reported the preset ceiling:
+                # the UI said 4.32, the device ran 3.80, neither lied and
+                # nothing explained the difference.
+                echo "$NA" > "$CFG/policy0/scaling_max_freq" 2>/dev/null
+                echo "$NB" > "$CFG/policy6/scaling_max_freq" 2>/dev/null
                 echo "backoff $STAGE" > "$PM_STATE.tmp" 2>/dev/null; mv "$PM_STATE.tmp" "$PM_STATE" 2>/dev/null
                 pm_log "sensor outage 30+30 ticks (silicon ${DEAD_C}/skin ${DEAD_S}), forced back-off to stage 1 ($NA/$NB)"
             elif [ $((DEAD % 300)) -eq 0 ]; then
@@ -459,6 +468,11 @@ while true; do
                 a=$NA; b=$NB
                 for i in 0 1 2 3 4 5; do echo "cpu$i $a" > "$TM/cpu_limits" 2>/dev/null; done
                 for i in 6 7; do echo "cpu$i $b" > "$TM/cpu_limits" 2>/dev/null; done
+                # Same scaling_max_freq sync as the outage path: the stage
+                # must be visible on the nodes detector apps and the UI read,
+                # not only inside thermal_message's cpu_limits.
+                echo "$a" > "$CFG/policy0/scaling_max_freq" 2>/dev/null
+                echo "$b" > "$CFG/policy6/scaling_max_freq" 2>/dev/null
                 echo "backoff $STAGE" > "$PM_STATE.tmp" 2>/dev/null; mv "$PM_STATE.tmp" "$PM_STATE" 2>/dev/null
                 pm_log "trip($WHICH) at $LIM mC (silicon $TC/skin $TS), back-off to stage $STAGE ($a/$b, was $c0/$c6)"
                 COOL=0
@@ -486,7 +500,17 @@ while true; do
                 if [ "$RECOVER" -ge 120 ]; then
                     STAGE=$((STAGE - 1))
                     case "$STAGE" in
-                        0) rm -f "$PM_STAGE" ;;
+                        0)
+                            rm -f "$PM_STAGE"
+                            # Scaling must follow the stage back up.  Under
+                            # TABLE_IN_CHARGE the hold block skips writes, so
+                            # without this the scaling_max_freq nodes stayed
+                            # at the stage-1 value after every recovery: the
+                            # daemon held the real ceiling per its table while
+                            # scaling_max_freq (what detector apps display)
+                            # kept reporting the back-off.
+                            echo "$(pm_base0)" > "$CFG/policy0/scaling_max_freq" 2>/dev/null
+                            echo "$(pm_base6)" > "$CFG/policy6/scaling_max_freq" 2>/dev/null ;;
                         1)
                             # Stage 1 is 88% of the preset base -- the same
                             # ratio the down-step used, so recovery mirrors
@@ -495,7 +519,9 @@ while true; do
                             # and would over-clock every other preset.
                             na=$(pm_step_down "$CFG/policy0" "$(pm_base0)" 88)
                             nb=$(pm_step_down "$CFG/policy6" "$(pm_base6)" 88)
-                            echo "$na $nb" > "$PM_STAGE" ;;
+                            echo "$na $nb" > "$PM_STAGE"
+                            echo "$na" > "$CFG/policy0/scaling_max_freq" 2>/dev/null
+                            echo "$nb" > "$CFG/policy6/scaling_max_freq" 2>/dev/null ;;
                     esac
                     pm_log "recover to stage $STAGE (silicon $TC/skin $TS, targets $a/$b)"
                     RECOVER=0
