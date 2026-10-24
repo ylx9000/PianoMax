@@ -3,9 +3,9 @@
 # Copyright (C) 2026 ylx9000
 # Licensed under the PolyForm Noncommercial License 1.0.0.
 #
-# The numbers below were captured from a clean boot on OS3.0.309.0.WPYCNXM
-# with `cat`, not derived by inverting tune.sh.  Anything not measured says
-# so in a comment rather than guessing.
+# Every number below was cat'ed off a clean boot on OS3.0.309.0.WPYCNXM.
+# If a value ever has to be assumed instead of read, its comment must say
+# which one and why.
 
 . "$(dirname "$0")/lib/common.sh"
 PM_COMP=restore   # log v2: RFC5424 APP-NAME equivalent, one per entry script

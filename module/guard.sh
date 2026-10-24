@@ -260,7 +260,7 @@ while true; do
     # /proc/<pid>/cgroup (lines 2-4 carry blkio/cpu/cpuset/memory), so the
     # file must be walked line by line -- a single read saw only
     # "4:memory:/apps/..." and matched nothing, making this guard a
-    # permanent no-op that still looked correct in the source .  The doubled dollar
+    # permanent no-op that still looked correct in the source.  The doubled dollar
     # here has also been silently folded to a single one twice by editors
     # that treat it as an escape sequence; build.mjs now refuses to package
     # the degraded form.

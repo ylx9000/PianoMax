@@ -49,7 +49,7 @@ Switching applies one complete set. Sliders remain available afterwards; a slide
 
 - Every value is snapped to a frequency the kernel actually offers before being written. Values off the ladder are silently rounded by the kernel, and the UI then shows something the module never requested.
 - **Powersave** returns soft thermal control to the kernel: at those clocks the stock curve never throttles, so silencing it would only remove a layer of protection.
-- Presets write the same four state files as the sliders, so a preset and a manual edit never disagree about what is in force.
+- Presets write the same four state files as the sliders; what the UI shows is what is in force.
 - After a preset switch the silicon still carries the previous preset's heat and could trip the new, lower tripwire immediately. A 15-second grace period follows each switch: ceilings are still asserted, but back-off is not evaluated until the thermal state has settled.
 - The GPU column is a **cap**: the GPU has its own devfreq governor (msm-adreno-tz) and idles at lower levels by design. Whether the cap is in force is shown by max_gpuclk on the WebUI thermal page.
 
@@ -81,8 +81,6 @@ Bottom line: treat PianoMax as the only performance module on the device. Coexis
 | LLCC | 1211000 kHz | memlat and bwmon votes |
 
 ## Four channels, not one
-
-The key to how this module works.
 
 **1. cpu_limits is a command channel.** `/sys/devices/virtual/thermal/thermal_message/cpu_limits` always reads back empty, but a write there is the ceiling. Writing `scaling_max_freq` alone is overwritten by `mi_thermald` within two seconds; cpu_limits is not.
 
@@ -152,7 +150,7 @@ Crossing a tripwire does **not** restore everything at once; it stages down: fir
 
 ## Temperature spoof (default off · four tiers)
 
-Four tiers on the thermal tab of the WebUI, default off. The tiers are not degrees of the same thing: each one is a different answer to **how many sensors stop telling the truth**, which is why it is a four-way selector rather than a switch.
+Four tiers on the thermal tab of the WebUI, default off. Each tier differs in **how many sensors stop telling the truth**.
 
 | Tier | What it does | Zones | Sensors still real |
 | --- | --- | --- | --- |
@@ -172,11 +170,11 @@ Two mechanisms:
 
 **Effect on mi_thermald:** its VIRTUAL-SENSOR decision input aggregates cpu_therm with weight 8, and cpu_therm is spoofable — measured in thermal.dump, the aggregate sits at a constant 25000 while the emul layer is up. So beyond the table swap, the spoof also touches the daemon's input side. Its other inputs (quiet_therm and the chassis family) stay real, and with a swapped table in charge the daemon is enforcing our ceiling anyway, so this is a known and accepted side effect — but "mi_thermald is completely unaffected by the spoof" is not a true statement. Hardware over-temperature protection and the kernel critical trip stay armed.
 
-**Why the tiers matter:** at Max the 48 emulated zones leave the module's own chip tripwire with only the eight PMIC junctions plus the battery. Measured on this device, only `pmih010x_lite_tz` (zone 71) runs warm; the rest sit in the low 30s against a 105 °C threshold. The input is gone, not the threshold too high. Normal masks only 28 and keeps 29 real readings (57 - 28), so the tripwire still has something to act on. That is where "Normal is safer than Max" stops being a slogan.
+**Why the tiers matter:** at Max the 48 emulated zones leave the module's own chip tripwire with only the eight PMIC junctions plus the battery. Measured on this device, only `pmih010x_lite_tz` (zone 71) runs warm; the rest sit in the low 30s against a 105 °C threshold. The input is gone, not the threshold too high. Normal masks only 28 and keeps 29 real readings (57 - 28), so the tripwire still has real inputs to act on.
 
 Any emul tier also tightens the chassis tripwire by 3 °C: with the chip side blinded, the chassis is the only soft protection still alive. The WebUI reports unobservable temperatures as `—` rather than a fabricated number.
 
-On the Power save preset, which hands soft thermal policy back to the kernel, every emul tier degrades to "Lock only" and logs it — faking readings there would blind the very governor that preset just restored. The UI badge reports the degraded behaviour (framework lock) actually in effect, not the tier name you picked -- state and behaviour always agree.
+On the Power save preset, which hands soft thermal policy back to the kernel, every emul tier degrades to "Lock only" and logs it — faking readings there would blind the very governor that preset just restored. The UI badge shows the behaviour actually in effect (framework lock), not the tier name you picked.
 
 **Tier switches are idempotent**: Max → Normal clears the 21 zones that only Max covers, and → Off releases the framework lock. Restoring the module to factory values releases it too; omitting that step left the framework believing the device was permanently cool after the module was switched off.
 

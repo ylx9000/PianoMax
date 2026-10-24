@@ -150,9 +150,9 @@ cmd_set() {
             echo "$a" > "$CFG/policy0/scaling_max_freq" 2>/dev/null
             echo "$b" > "$CFG/policy6/scaling_max_freq" 2>/dev/null
             # Read-back (F4): cpu_limits is write-only, but scaling_max_freq
-            # is readable -- a kernel refusal must not surface as ok (the
-            # guard re-pin makes it true a tick later, so this is honesty
-            # not a permanent lie).
+            # is readable -- a kernel refusal must not surface as ok.  The
+            # guard re-pin corrects it a tick later, but this read reports
+            # this tick.
             r0=""; IFS= read -r r0 < "$CFG/policy0/scaling_max_freq" 2>/dev/null
             r6=""; IFS= read -r r6 < "$CFG/policy6/scaling_max_freq" 2>/dev/null
             pm_logn "target_set: c0=$a c6=$b readback=$r0/$r6"
@@ -359,7 +359,7 @@ case "$1" in
         # switched off, tune.sh apply replies "switched off" and does nothing.
         # Wrapping that as ok: told the caller the parameters were re-applied
         # when they were still factory.  Err: prefix + the existing
-        # describeErr mapping is the honest shape.
+        # describeErr mapping.
         r=$(sh "$MODDIR/tune.sh" apply 2>&1)
         case "$r" in
             "switched off") echo "err:switched_off" ;;

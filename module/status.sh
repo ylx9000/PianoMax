@@ -43,7 +43,7 @@ S=""
 IFS= read -r S 2>/dev/null < "$PM_STATE"
 # Before the guard's first tick .state does not exist yet; printing an empty
 # value made the WebUI's hold field blank, which reads as "broken" rather
-# than "starting".  "starting" is the honest answer for that window.
+# than "starting".  "starting" is the accurate answer for that window.
 case "$S" in
     "") kv hold "starting" ;;
     *)  # Parameter expansion instead of echo|cut: one saved fork per poll.
@@ -235,10 +235,10 @@ kv trip_s "$((TRIPS / 1000))"
 # UI where a spoofed value would have been presented as a measurement.
 # When the emul layer is on, every zone in the CPU and GPU clusters reads the
 # spoofed value, so there is no real per-cluster reading left to report --
-# excluding 25000 and printing "0" would be a second kind of lie.  Fall back
-# to the highest non-emulated sensor (PMIC junction, which spoofing never
-# touches and which tracks the package): it is the closest honest number, and
-# t_hot already publishes it with its true meaning.
+# excluding 25000 and printing "0" would misreport a blinded cluster as idle.
+# Fall back to the highest non-emulated sensor (PMIC junction, which spoofing
+# never touches and which tracks the package): it is the closest real number,
+# and t_hot already publishes it.
 # -1 is the explicit "not observable" marker the UI renders as a dash; a
 # bare "—" would break the key=value integer contract every other field
 # honours, and 0 would read as "sensor dead" and collide with the dead-sensor

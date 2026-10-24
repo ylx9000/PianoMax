@@ -24,10 +24,9 @@
 T_DIR=/data/vendor/thermal/config
 # Whether the immutable-bit tool exists at all.  Not every toybox build ships
 # chattr/lsattr, and the module's own +i calls are all silenced with
-# 2>/dev/null -- on a ROM without it the "cloud control cannot overwrite the
-# table" guarantee would simply not exist while every log line still claimed
-# it did.  Probed once here and reported by piano_diag.sh, so the claim is
-# checkable from the device instead of assumed from the build.
+# 2>/dev/null -- on a ROM without it the +i calls do nothing and cloud
+# control can overwrite the deployed table.  Probed once here and reported
+# by piano_diag.sh.
 PM_CHATTR=""
 if command -v chattr >/dev/null 2>&1; then PM_CHATTR=1; fi
 export PM_CHATTR

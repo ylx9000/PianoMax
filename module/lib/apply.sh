@@ -201,8 +201,8 @@ pin_gpu() {
         pm_wr "$GPU/min_pwrlevel" 12
         pm_wr "$GPU/max_pwrlevel" "$lvl"
     else
-        # Stay honest: pin to whatever the latch still allows instead of
-        # advertising a clock the hardware will not deliver.
+        # Pin to whatever the latch still allows instead of advertising a
+        # clock the hardware will not deliver.
         pm_wr "$GPU/max_pwrlevel" "$tp"
     fi
 
