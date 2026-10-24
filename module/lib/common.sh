@@ -350,7 +350,7 @@ pm_state_rebuild() {
     # restore.sh wipes the governor preference with the rest of the state;
     # dropping a stale .gov here keeps a rebuilt state from carrying one.
     rm -f "$PM_DIR/.gov"
-    pm_log "state rebuilt from preset $_rbk"
+    pm_logn "state_rebuild: from preset $_rbk"
     return 0
 }
 
@@ -636,16 +636,16 @@ pm_guard_start() {
         fi
         [ -n "$gp" ] && [ -d "/proc/$gp" ] && kill -9 "$gp" 2>/dev/null
         rm -rf "$PM_DIR/.guard_lock" 2>/dev/null
-        pm_log "guard start: removed lockless instance $gp"
+        pm_logw "takeover: removed lockless instance $gp"
     fi
     setsid sh "$PM_DIR/guard.sh" </dev/null >/dev/null 2>&1 &
     n=0
     while [ $n -lt 10 ]; do
         sleep 0.5 2>/dev/null || sleep 1
-        if pm_guard_pid >/dev/null; then pm_log "guard started (pid $(pm_guard_pid))"; return 0; fi
+        if pm_guard_pid >/dev/null; then pm_logn "guard_start: ok pid=$(pm_guard_pid)"; return 0; fi
         n=$((n + 1))
     done
-    pm_log "guard start failed"
+    pm_loge "guard_start: FAILED"
     return 1
 }
 

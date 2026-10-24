@@ -265,8 +265,8 @@ if [ -f "$LOGF" ]; then
     NW=$(awk '$3 == "W"' "$LOGF" 2>/dev/null | wc -l)
     ND=$(awk '$3 == "D"' "$LOGF" 2>/dev/null | wc -l)
     echo "  lines: E=$NE W=$NW D=$ND (info/notice not counted)"
-    [ "$NE" = "0" ] && say_ok "no error-level lines" || { say_fail "$NE error lines"; grep " E " "$LOGF" | tail -3 | sed 's/^/    last E: /'; }
-    [ "$NW" = "0" ] && say_ok "no warning-level lines" || { say_warn "$NW warning lines"; grep " W " "$LOGF" | tail -3 | sed 's/^/    last W: /'; }
+    [ "$NE" = "0" ] && say_ok "no error-level lines" || { say_fail "$NE error lines"; awk '$3 == "E"' "$LOGF" | tail -3 | sed 's/^/    last E: /'; }
+    [ "$NW" = "0" ] && say_ok "no warning-level lines" || { say_warn "$NW warning lines"; awk '$3 == "W"' "$LOGF" | tail -3 | sed 's/^/    last W: /'; }
 else
     say_warn "no log file yet (fresh install?)"
 fi

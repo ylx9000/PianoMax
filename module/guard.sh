@@ -235,7 +235,7 @@ while true; do
 
     # ---- shutdown paths -------------------------------------------------
     if [ -f "$PM_DIR/disable" ]; then
-        pm_log "kernelsu disabled, restoring"
+        pm_logn "ksu: disabled, restoring"
         sh "$PM_DIR/restore.sh" >/dev/null 2>&1
         exit 0
     fi
@@ -273,7 +273,7 @@ while true; do
     done < "/proc/$$/cgroup" 2>/dev/null
     if [ -n "$CG" ] && [ "$CG" != "/" ]; then
         echo $$ > /sys/fs/cgroup/cgroup.procs 2>/dev/null \
-            && pm_log "guard: left frozen cgroup $CG"
+            && pm_logw "cgroup: left frozen cgroup $CG (Android freezer may suspend the tick loop)"
     fi
 
     # ---- thermald must live ---------------------------------------------
@@ -282,7 +282,7 @@ while true; do
         # Log only on the state transition: a daemon that never comes up would
         # otherwise write this line every tick and flush the real history out
         # of the 32 KB log window.
-        [ "$THERMALD_WAS" = "down" ] || pm_log "thermald restarted"
+        [ "$THERMALD_WAS" = "down" ] || pm_logn "thermald: restarted"
         THERMALD_WAS=down
     else
         THERMALD_WAS=""
@@ -716,7 +716,7 @@ while true; do
             # the scan would also remove the only readout of what AMS assigned.
             if [ -n "$adj" ] && [ "$adj" != "-1000" ] && [ -n "$PM_LAUNCHER_PIN" ]; then
                 echo "$PM_LAUNCHER_PIN" > "$p/oom_score_adj" 2>/dev/null
-                pm_log "launcher pin: ${p##*/} ($c) adj $adj -> $PM_LAUNCHER_PIN"
+                pm_logd "launcher_pin: ${p##*/} adj=$adj target=$PM_LAUNCHER_PIN"
             fi
         done
     fi

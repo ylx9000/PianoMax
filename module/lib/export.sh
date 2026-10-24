@@ -98,7 +98,7 @@ pm_export_run() {
     } > "$kv" 2>/dev/null
     echo "export: $kv"
 
-    pm_crc32_available || { pm_log "export: no crc32 applet, kv text only"; return 2; }
+    pm_crc32_available || { pm_logw "export: no crc32 applet, kv text only"; return 2; }
     zip="$out/$name.zip"
     idx="$out/.idx"
     : > "$zip"; : > "$idx"
@@ -140,11 +140,11 @@ pm_export_run() {
         if "$u" unzip -t "$zip" >/dev/null 2>&1; then PM_UNZIP="$u"; break; fi
     done
     if [ -n "$PM_UNZIP" ]; then
-        pm_log "export: zip $zip"
+        pm_logn "export: zip=$zip"
         echo "export: $zip"
     else
         rm -f "$zip"
-        pm_log "export: zip failed self-check, removed (kv text is the export)"
+        pm_logw "export: zip FAILED self-check, removed (kv text is the export)"
         echo "export: zip container failed validation; the kv text above is the export"
         return 3
     fi
