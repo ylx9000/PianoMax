@@ -16,6 +16,11 @@
 . "$(dirname "$0")/lib/common.sh"
 . "$(dirname "$0")/lib/apply.sh"
 
+# Mirror of thermal.sh's T_ROOT: the table gate below reads the daemon's
+# decrypt.txt there.  Kept literal instead of sourcing thermal.sh, whose
+# swap/revert side effects must never run from inside the guard loop.
+T_ROOT=/data/vendor/thermal
+
 # Put the ceiling back to the full spec.  Called on re-arm so a stale staged
 # value does not survive a full restore.
 held_reset() {
@@ -172,6 +177,8 @@ mv "$PM_STATE.tmp" "$PM_STATE" 2>/dev/null
 HELD=1
 COOL=0
 SAVED_FAILS=0
+GPULOST=0
+ST_TBL_OK=""
 STREAK=0
 STAGE=0
 RECOVER=0
@@ -536,8 +543,36 @@ while true; do
         # A thermal table in charge (profile.sh installed one) makes the
         # daemon enforce the ceiling itself; re-pinning every tick would
         # only fight the policy doing our job.  Reads stay, writes gate.
+        # Trusting the stamp alone once bit us: the stamp was written before
+        # the daemon reload was verified, and joyose/powerkeeper can wipe the
+        # override directory behind our back -- either way the table was gone
+        # while the gate said otherwise, and the ceiling lost its keeper
+        # until the next preset switch.  Three conditions must hold: the
+        # stamp exists, the daemon's last-decrypted table is non-empty, and
+        # that decrypt is not older than the stamp (i.e. the daemon re-read
+        # AFTER we installed our table).  Otherwise fall back to re-pinning.
         TABLE_IN_CHARGE=0
-        [ -f "$PM_DIR/.thermal_mode" ] && TABLE_IN_CHARGE=1
+        # Two stat forks per tick would double the loop's fork budget, and a
+        # cloud overwrite does not happen at second granularity: refresh the
+        # check every 5th tick, reuse the verdict between.  ST_TBL_OK stays
+        # uninitialized until the first evaluation so tick 1 never inherits a
+        # stale "yes".
+        #
+        # The freshness test compares decrypt.txt against .thermal_ts, the
+        # second the swap wrote down right before bouncing the daemon: any
+        # decrypt produced by OUR restart is at or after it.  Comparing the
+        # stamp's own mtime would read backwards -- the daemon rewrites
+        # decrypt before the stamp lands, so stamp-mtime > decrypt-mtime is
+        # the healthy case, not the suspicious one.
+        if [ -z "$ST_TBL_OK" ] || [ $((STREAK % 5)) -eq 0 ]; then
+            ST_TBL_OK=0
+            if [ -f "$PM_DIR/.thermal_mode" ] && [ -s "$T_ROOT/decrypt.txt" ] && [ -f "$PM_DIR/.thermal_ts" ]; then
+                TS_M=$(_pm_mtime "$PM_DIR/.thermal_ts")
+                DT_M=$(_pm_mtime "$T_ROOT/decrypt.txt")
+                [ -n "$TS_M" ] && [ -n "$DT_M" ] && [ "$DT_M" -ge "$TS_M" ] && ST_TBL_OK=1
+            fi
+        fi
+        [ "$ST_TBL_OK" = "1" ] && TABLE_IN_CHARGE=1
         if { [ "$c0" != "$a" ] || [ "$c6" != "$b" ]; } && [ "$TABLE_IN_CHARGE" = "0" ]; then
             # cpu_limits first: writing scaling_max_freq under a lower ceiling
             # is accepted and then clamped back, which looks like a failure.
@@ -581,6 +616,16 @@ while true; do
                 # GPU cap on the first thermal re-latch.
                 pm_wr "$GPU/max_pwrlevel" "$(pm_gpu_level)"
                 pm_log "gpu latch released (was $g)"
+            else
+                # Release failed and the ceiling is still clamped.  This used
+                # to be silent: under sustained heat the daemon re-latches
+                # every tick, max_pwrlevel stays at the clamp, and nothing in
+                # the log ever says why the GPU looks slow.  Same throttling
+                # shape as SAVED_FAILS: first three verbatim, then 1/60.
+                GPULOST=$((GPULOST + 1))
+                if [ "$GPULOST" -le 3 ] || [ $((GPULOST % 60)) -eq 0 ]; then
+                    pm_log "gpu latch STUCK at $g2 (n=$GPULOST) -- thermald keeps re-clamping"
+                fi
             fi
         fi
     fi

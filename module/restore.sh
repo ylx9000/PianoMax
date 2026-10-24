@@ -19,6 +19,9 @@
 # .state goes too: the guard rewrites it every tick while running, and a stale
 # snapshot left behind after a restore is exactly what the UI must not show.
 rm -f "$PM_STAGE" "$PM_TARGET" "$PM_STATE" "$PM_STATE.tmp" "$PM_DIR/.gov"
+# Boot-once memory priming is keyed on this marker; a fresh enable after a
+# restore gets the cache drop back, one that merely re-applied does not.
+rm -f "$PM_DIR/.mem_boot_done"
 # The spoof tier is a live switch, not a preset: leaving it behind would make
 # the next boot re-arm a spoof the user believed they had turned off by
 # restoring.  The override itself is released further down.
@@ -175,6 +178,13 @@ if [ -f "$PM_DIR/lib/thermal.sh" ]; then
     . "$PM_DIR/lib/thermal.sh"
     pm_thermal_revert
 fi
+
+# Symmetric undo of pin_boost_daemons: the boost daemons apply stopped belong
+# back once the module stops fighting for the ceiling.  start on a service
+# the ROM does not define is a harmless no-op, so every alias goes.
+for svc in perfd perfd.dyn qti-perfd perf-l2; do
+    start "$svc" 2>/dev/null || true
+done
 
 pm_log "restore done"
 echo "restore done"

@@ -102,6 +102,23 @@ disable_compute_zones() {
 # cpu_limits is a command channel: it reads back empty, but a write there is
 # what actually moves the ceiling.  scaling_max_freq written alone gets
 # reverted by mi_thermald within seconds, so both are written, ceiling first.
+# Qualcomm's boost daemons are a third and fourth frequency writer nobody
+# told us about: perfd re-arms cpu_limits on its own schedule and
+# perfboostsconfig feeds it launch/boost events, both undoing our ceiling
+# seconds after apply.  A systemless file swap is not available to a KSU
+# userspace module, so the reversible slice is initctl-level: stop the
+# services for the duration of the module's run.  restore.sh starts them
+# back.  Everything here is best-effort: a service the ROM does not define
+# makes stop a no-op, and perfd can still be re-spawned by property triggers
+# -- the guard's own re-pin loop remains the real keeper.
+pin_boost_daemons() {
+    stop perfd 2>/dev/null && pm_log "perfd stopped (boost path quiet)" || true
+    # vendor init may name it perfd.dyn or qti-perfd; sweep the aliases.
+    for svc in perfd.dyn qti-perfd perf-l2; do
+        stop "$svc" 2>/dev/null || true
+    done
+}
+
 pin_cpu() {
     a=$(pm_target0); b=$(pm_target6)
     for i in 0 1 2 3 4 5; do echo "cpu$i $a" > "$TM/cpu_limits" 2>/dev/null; done
@@ -374,15 +391,29 @@ apply_temp_spoof() {
 }
 
 tune_mem() {
-    pm_wr /proc/sys/vm/min_free_kbytes 40960
-    pm_wr /proc/sys/vm/extfrag_threshold 300
-    pm_wr /proc/sys/vm/compaction_proactiveness 30
+    # 20480 sits between the vendor 11584 and the old 40960: the old value
+    # raised every zone watermark 3.5x, which pulled MemAvailable under the
+    # lmkd lines early and got the launcher killed on memory spikes.  Twice
+    # vendor keeps headroom for bursts without starving the reclaim pool.
+    pm_wr /proc/sys/vm/min_free_kbytes 20480
+    # 500 is the vendor value; 300 made compaction fire on every small
+    # fragmentation event.  Proactiveness 8 keeps background compaction on
+    # a short leash instead of a permanent drain.
+    pm_wr /proc/sys/vm/extfrag_threshold 500
+    pm_wr /proc/sys/vm/compaction_proactiveness 8
     pm_wr /proc/sys/vm/compact_unevictable_allowed 1
     pm_wr /sys/kernel/mm/lru_gen/enabled Y
     pm_wr /sys/kernel/mm/lru_gen/min_ttl_ms 500
-    sync
-    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
-    echo 1 > /proc/sys/vm/compact_memory 2>/dev/null
+    # Cache drop + full compaction run once per boot, here.  Re-running
+    # them on every preset switch and guard re-arm emptied the page cache,
+    # made MemAvailable spike and crash back down, and widened the lmkd
+    # kill window exactly when the user was interacting with the device.
+    if [ ! -f "$PM_DIR/.mem_boot_done" ]; then
+        sync
+        echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+        echo 1 > /proc/sys/vm/compact_memory 2>/dev/null
+        echo boot > "$PM_DIR/.mem_boot_done" 2>/dev/null
+    fi
 }
 
 tune_sched() {
@@ -449,6 +480,7 @@ pm_apply_all() {
     disable_compute_zones
     apply_temp_spoof
     pin_cpu
+    pin_boost_daemons
     pin_bus
     pin_gpu
     tune_mem

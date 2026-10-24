@@ -64,6 +64,20 @@ if [ -f "$PM_DIR/.thermal_mode" ]; then
     if [ -f /data/vendor/thermal/decrypt.txt ]; then
         SZ=$(stat -c %s /data/vendor/thermal/decrypt.txt 2>/dev/null)
         say_ok "decrypt.txt live, $SZ bytes (daemon is serving our table)"
+        # Freshness: decrypt must be at or after .thermal_ts, the second the
+        # swap bounced the daemon.  An older decrypt means the daemon never
+        # re-read our table and the guard will (correctly) ignore the stamp.
+        if [ -f "$PM_DIR/.thermal_ts" ]; then
+            TS_M=$(stat -c %Y "$PM_DIR/.thermal_ts" 2>/dev/null)
+            DT_M=$(stat -c %Y /data/vendor/thermal/decrypt.txt 2>/dev/null)
+            if [ -n "$TS_M" ] && [ -n "$DT_M" ]; then
+                if [ "$DT_M" -ge "$TS_M" ]; then
+                    say_ok "decrypt.txt fresh (>= table install time) -- guard may hand the ceiling to the table"
+                else
+                    say_warn "decrypt.txt older than table install -- daemon did not re-read; guard is re-pinning instead"
+                fi
+            fi
+        fi
     else
         say_fail "stamp present but decrypt.txt missing -- daemon never reloaded?"
     fi

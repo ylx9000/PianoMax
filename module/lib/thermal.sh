@@ -108,6 +108,20 @@ pm_thermal_capture() {
 pm_thermal_swap() {
     mode=$1
     [ -d "$T_SRC/$mode" ] || { pm_log "thermal: no table for $mode"; return 1; }
+    # Rival thermal tables from other modules shadow ours by mount order:
+    # theirs lands later in the vendor config path and wins every daemon
+    # reload, which reads back as "the preset stopped working" with nothing
+    # in our own log.  A read-only sweep over the module tree right before
+    # installing names the rival while there is still time to say so.  This
+    # deliberately warns instead of refusing -- a preset switch must not be
+    # hostage to some other module's files -- but the log line is the first
+    # thing to check when a freshly stamped table changes nothing.
+    for rival in /data/adb/modules/*/[Ss]ystem/vendor/thermal/config/*.conf \
+                 /data/adb/modules/*/[Ss]ystem/vendor/etc/thermal*.conf; do
+        [ -f "$rival" ] || continue
+        case "$rival" in *"/pianomax/"*) continue ;; esac
+        pm_log "thermal: rival table in $rival -- theirs may shadow ours (mount order)"
+    done
     pm_thermal_capture || return 1
     # Cloud control (powerkeeper/joyose) rewrites this directory whenever it
     # feels like it.  An immutable bit survives even root writes; take it
@@ -129,7 +143,6 @@ pm_thermal_swap() {
         pm_log "thermal: swap copy failed for $mode, stamp NOT written, keeping previous table"
         return 1
     fi
-    echo "$mode" > "$T_STAMP"
     restorecon -DFR "$T_DIR" 2>/dev/null
     # Policy vacuum is 1-2 s while the daemon re-reads; acceptable at preset
     # switch, and the guard re-pins the ceiling as soon as it is back.
@@ -138,12 +151,40 @@ pm_thermal_swap() {
     # sample anything, and a same-value comparison would then read as
     # "never reloaded".
     t_before=$(pm_stat_sig "$T_ROOT/decrypt.txt")
+    # Guard-side reference point: everything the daemon writes to decrypt.txt
+    # from this moment on must carry an mtime at or after this second.  The
+    # stamp itself gets written after verify, so comparing stamp-mtime against
+    # decrypt-mtime directly would read backwards (the daemon rewrites decrypt
+    # BEFORE the stamp lands) and disqualify healthy tables.
+    date +%s > "$PM_DIR/.thermal_ts" 2>/dev/null
     setprop ctl.restart mi_thermald 2>/dev/null || { stop mi_thermald 2>/dev/null; start mi_thermald 2>/dev/null; }
-    pm_thermal_verify "$mode" "$t_before"
+    # The stamp goes down only after the daemon proves it re-read: a stamp
+    # written earlier turned the guard's table gate into a lie whenever the
+    # restart was swallowed or the load rejected, and the ceiling then lost
+    # its keeper until the next preset switch.  On a failed verify the stamp
+    # stays off and the guard keeps re-pinning -- the old behaviour, never
+    # the worse one.
+    if pm_thermal_verify "$mode" "$t_before"; then
+        echo "$mode" > "$T_STAMP"
+    else
+        rm -f "$T_STAMP"
+        pm_log "thermal: verify failed, stamp withheld -- guard keeps re-pinning"
+    fi
+    # Pin the override directory immutable: joyose/powerkeeper rewrite T_DIR
+    # "whenever it feels like it" (its own comment in this file), and a cloud
+    # overwrite here silently reverted the preset table while the stamp kept
+    # claiming otherwise.  Revert and uninstall already clear the bit first.
+    chattr -R +i "$T_DIR" 2>/dev/null
 }
 
 # Put the vendor's own tables back.  Used by restore.sh and uninstall.
 pm_thermal_revert() {
+    # Unconditional unlock, before anything else.  The early returns below
+    # (missing snapshot) previously skipped it, which mattered after a module
+    # update that lost .thermal_captured while the preset table still carried
+    # +i: vendor bytes and cloud control alike then bounced off the immutable
+    # directory with nothing left in the module tree able to clear it.
+    chattr -R -i "$T_DIR" 2>/dev/null
     [ -f "$PM_DIR/.thermal_captured" ] || return 0
     # The snapshot is the only proof of what "vendor" means.  A capture with
     # an empty or missing directory cannot restore anything: refuse, keep the

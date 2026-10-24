@@ -103,6 +103,12 @@ pm_detect_root() {
 # Numeric guard: is $1 a plain non-negative integer?
 pm_num() { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 
+# Epoch mtime of a file, empty when the file is missing or stat lacks -c.
+# Used by the guard to compare the thermal-table stamp against the daemon's
+# last-decrypted output: ordering the two mtimes is the only cheap way to
+# know the daemon actually re-read after our table landed.
+_pm_mtime() { stat -c %Y "$1" 2>/dev/null; }
+
 # Zero-fork helpers for the guard hot loop.  Every $(cat ...) in the main
 # while-body costs a fork+exec, and measured on this box the shell forks put
 # a tick at ~1.2 s instead of the intended 1 s.  Both helpers are builtins
