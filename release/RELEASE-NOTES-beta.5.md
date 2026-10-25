@@ -23,7 +23,7 @@
 
 - `PianoMax-v1.0.0-beta.5.zip` 135,276 字节
 - SHA-256: `ED1714397DD60D4B651B6C9EA9044AB9E7C99AF894A23A67994F4C0A154701E9`
-- tag `v1.0.0-beta.5` → commit `7c46ad0`
+- tag `v1.0.0-beta.5`
 
 核验：`curl -sL https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip | sha256sum`
 
