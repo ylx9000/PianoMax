@@ -24,13 +24,13 @@ Four presets — Power save / Balanced / Performance / Extreme. Each preset is a
 
 > [!WARNING]
 > Only the Xiaomi Pad 8 Pro (piano / SM8750P) is supported. A device check aborts every script on anything else — nothing is modified.
-> When upgrading from v1.0.0-beta, remove the old module in KernelSU Manager first; cross-version in-place updates are untested.
+> **Upgrading:** from the original `v1.0.0-beta`, remove the old module in KernelSU Manager first. From `v1.0.0-beta.4` / `beta.5` and later betas, flashing over the top works directly.
 
 ## Download
 
 <div align="center">
 
-[![Download](https://img.shields.io/badge/Download-PianoMax--v1.0.0--beta.5.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip)
+[![Download](https://img.shields.io/badge/Download-PianoMax--v1.0.0--beta.6.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.6/PianoMax-v1.0.0-beta.6.zip)
 
 </div>
 
@@ -163,7 +163,7 @@ Two mechanisms:
 
 | Layer | Channel | What it reaches |
 | --- | --- | --- |
-| Framework | `cmd thermalservice override-status 0` | the in-game quality decision, Unity Adaptive Performance, `PowerManager.getThermalStatus`. **The kernel governor and mi_thermald are untouched** |
+| Framework | `cmd thermalservice override-status 0` | the in-game quality decision, Unity Adaptive Performance, `PowerManager.getThermalStatus`. This layer touches no zone. **The kernel governor and mi_thermald's throttling decision are untouched at this layer** — but the kernel layer below writes the same zones, and mi_thermald's aggregate input includes spoofable compute zones, so with both layers up its input side is still affected; see "Effect on mi_thermald" |
 | Kernel | `emul_temp` = 25000 on compute zones | anything reading `thermal_zone*/temp`. `emul_temp` is write-only (mode 0200, no show handler), so the effect is verified through the zone temperature, never read back |
 
 **Never spoofed on any tier:** battery, charger, BCL current limit, PMIC junction (69–76, eight zones), wireless charging (77), and the ten discrete zones the chassis tripwire reads — **57 58 59 60 63 64 65 66 67 68**. That is not the contiguous 57–68 range: 61 and 62 are outside the chassis set (62 is cpu_therm, a spoofable compute zone that reads 25 °C at Max).
@@ -176,9 +176,9 @@ Any emul tier also tightens the chassis tripwire by 3 °C: with the chip side bl
 
 On the Power save preset, which hands soft thermal policy back to the kernel, every emul tier degrades to "Lock only" and logs it — faking readings there would blind the very governor that preset just restored. The UI badge shows the behaviour actually in effect (framework lock), not the tier name you picked.
 
-**Tier switches are idempotent**: Max → Normal clears the 21 zones that only Max covers, and → Off releases the framework lock. Restoring the module to factory values releases it too; omitting that step left the framework believing the device was permanently cool after the module was switched off.
+**Tier switches are idempotent**: Max → Normal clears the 20 zones that only Max covers (48 - 28 = 20), and → Off releases the framework lock. Restoring the module to factory values releases it too; omitting that step left the framework believing the device was permanently cool after the module was switched off.
 
-Both layers of this feature, and the freezes/losses each can suffer, are disclosed in DISCLAIMER.md.
+Both layers of this feature, and the freezes/losses each can suffer, are disclosed in [DISCLAIMER.en.md](DISCLAIMER.en.md).
 
 ## Install
 
@@ -216,10 +216,11 @@ su -c "sh /data/adb/modules/pianomax/profile.sh list"
 <img src="docs/shots/sched-dark.png" width="32%" alt="Scheduler">
 <img src="docs/shots/sys-dark.png" width="32%" alt="System">
 </p>
+<p align="center"><sub>Captured on v1.0.0-beta.2; kept as a layout reference. Values and copy have changed since.</sub></p>
 
 Open from the KernelSU module card. Five tabs: performance, thermal, memory, scheduler, system.
 
-Four deliberate design choices:
+Seven deliberate design choices:
 
 **One call returns the whole state.** The page calls `control.sh snapshot` every few seconds; one process returns 65 values (48 in the light poll). Widgets never issue their own commands.
 
@@ -228,6 +229,12 @@ Four deliberate design choices:
 **The verdict comes first.** The status line is not decoration: running at ceiling / approaching tripwire / tripped / daemon stopped / ceiling not in force. A stopped daemon means nothing is holding the frequency — that matters more than any number.
 
 **Two tripwires, two steppers.** Silicon and skin are independent curves with separate bounds.
+
+**Every parameter has a "?" card.** The small button next to a row opens a bottom sheet: the first line is the plain-language verdict, followed by 2-4 points on what the parameter is and what changing it costs. Long explanations stay off the page and follow the dark theme.
+
+**The log view filters and tails live.** A built-in viewer slices by level (all / action / back-off / spoof / fault) and can tail in real time every 2 seconds. The module log carries the whole decision chain: every back-off records the temperatures and the target at that moment, and every WebUI write leaves a `ui-action` audit line.
+
+**Polling cost is measured, not assumed.** Steady-state polling uses the light snapshot (462 ms); a full snapshot is pulled only after a parameter changes, to resync the sliders. That is roughly 77% cheaper per poll than the first implementation (1,989 ms).
 
 ## GPU latch mechanism (measured)
 
@@ -276,6 +283,7 @@ Module layout:
 ```
 module/
   module.prop
+  banner.png          module card banner
   post-fs-data.sh     cold-boot GPU window
   service.sh          one-shot apply after boot
   boot-completed.sh   daemon self-heal
@@ -305,4 +313,4 @@ PolyForm Noncommercial License 1.0.0 ([LICENSE](LICENSE)). Free to use, modify a
 
 ## Disclaimer
 
-Read [DISCLAIMER.md](DISCLAIMER.md) in full before flashing. In short: this runs the device at high temperature and power points; you bear the risk.
+Read [DISCLAIMER.en.md](DISCLAIMER.en.md) in full before flashing. In short: this runs the device at high temperature and power points; you bear the risk.

@@ -2,7 +2,27 @@
 
 本文件记录 PianoMax 各版本的显著变更。格式参照 Keep a Changelog。
 
-## v1.0.0-beta.5 - 2026-10-24
+## v1.0.0-beta.6 - 2026-11-20
+
+没有调参行为变化。改动分三块：清掉 beta.4 移除桌面保护时留下的还原路径尾巴、修掉配置导出在无 busybox 机器上必然失败的自检、把一批与代码实际行为对不上的注释与文档拉回一致。版本号同时推到 `v1.0.0-beta.6` / `versionCode=7`，让 `module.prop`、`update.json` 与发布资产三者指向同一个提交。
+
+### 修复
+
+- `restore.sh` 残余的 `oom_score_adj` 覆盖。桌面与 SystemUI 的 `-1000` 写入在 beta.4 已移除，但还原路径仍在把它们写回 `0`：守卫不再写，这一步就成了第二个与 AMS 抢写的写入者，且没有任何依据支持它。连同「守护进程把桌面锁到 -1000」这句过期注释一起删掉
+- `lib/export.sh` 的 zip 自检在命中独立 `unzip` 时会执行成 `unzip unzip -t`（把 applet 名当文件名传给了真正的二进制），任何不带 busybox 的设备都会把完好的导出包判成损坏并删除。改为两条载体两种调用：先遍历 busybox 路径执行 `"$u" unzip -t`，全部失败后再用 `command -v unzip` 单独执行 `unzip -t`
+- `lib/export.sh` 的 crc32 探测仍写死 `/data/adb/modules/pianomax/module.prop`：模块 id 或安装路径一变探测就失败，导出会静默降级成纯 kv 文本。改为 `$PM_DIR/module.prop`，同时删掉循环外那次重复的 `busybox` 探测（`busybox` 本来就是循环的最后一项）
+- 文件顶部注释把导出的容器说成「module-flashable zip」，实际只打包 `module.prop` / `presets.txt` / `config.txt`，刷不进去。改为 configuration snapshot zip (not flashable)
+
+### 变更
+
+- `guard.sh` 移除每 5 秒一次的全 `/proc` 扫描死代码。`PM_LAUNCHER_PIN` 被声明为空之后，这个块仍然每 5 秒遍历所有 pid、每个进程 fork 一次 `timeout 1 tr` 读 cmdline，只为走到一个恒假的分支。整块删掉（桌面保护本身在 beta.4 已判定为不该存在），守卫每 5 秒的 fork 预算直接归零
+- 注释与文档对齐实际行为：`apply.sh` 残留的 `21 zones` 改为 `20 zones`（48 - 28 = 20），并说明 `_all` 兜底列表为什么必须保持比当前分类更宽（它只做清理，且以读到 25000 为前提，保护族不在列表内）；`common.sh` 删掉 `pm_zone_cache_ok()` 上方连续重复的两段 `zones 0, 15 and 22` 说明；`webroot/control.sh` 的操作审计注释去掉对话式表述
+- `thermal/extreme/README.txt` 补齐与密文实际内容的差异项：除 `[SS-CPU0]` / `[SS-CPU6]` 的阶梯外，`[MONITOR-GPU]` 也移除了原厂 `trig 25000` / `clr 23000` / `target 1` 那一档，只剩 `trig 45000` / `clr 42000` / `target 5`
+- README 中英两版一致性：温度伪装的差值温区 `21`（zh/`21 zones` en）统一为 `20`；WebUI 设计选择小标题的「四个」/「Four」与实际列出的 7 条不符，改为「七个」/「Seven」；升级指引与发布说明对齐，写清「从最早的 `v1.0.0-beta` 升级需先卸载旧版，`beta.4` / `beta.5` 及之后的 beta 可直接覆盖刷入」；英文版温区小节引用的 `DISCLAIMER.md` 改为 `DISCLAIMER.en.md`；模块结构树补上实际存在的 `banner.png`
+- README「两层机制」表格不再写「内核 governor 与 mi_thermald 完全不受影响」：这一句只说框架层，而下一行的内核层写的是同一批温区，两者叠加时 mi_thermald 的输入侧确实会被动到。表格改成按层描述，并显式指下面「对 mi_thermald 的实际影响」一节
+- WebUI 截图实际拍摄于 beta.2，图注标注为版式示意（无新截图，不冒充当前版本）
+
+## v1.0.0-beta.5 - 2026-10-25
 
 发布侧修复。beta.4 存在两份内容不同的构建共用一个版本号：GitHub 上的是 `abae45f`（124,404 字节），本地后来又完成了一轮修复（`0beaade`，6 个文件 157 行）但没有推送，那个包是 127,581 字节。两份都叫 beta.4、都写 `versionCode=5`，装过的设备既收不到更新提示，也看不出自己装的是哪一份。本版把版本号让开，并让 tag、资产、说明三者指向同一个提交。
 

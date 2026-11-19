@@ -3,8 +3,10 @@
 # Copyright (C) 2026 ylx9000
 # Licensed under the PolyForm Noncommercial License 1.0.0.
 #
-# Packs the live configuration into a module-flashable zip.  A store-only
-# zip is three fixed record layouts from PKWARE APPNOTE.TXT section V;
+# Packs the live configuration into a configuration snapshot zip (not
+# flashable: it carries module.prop, presets.txt and the exported config text,
+# not the module tree).  A store-only zip is three fixed record layouts from
+# PKWARE APPNOTE.TXT section V;
 # sizes and the per-member CRC-32 are the only variable parts.  The CRC
 # needs bitwise xor: toybox awk has none, the manager bundled busybox awk
 # does (verified on-device against a reference implementation).  Probe
@@ -31,10 +33,12 @@ fi
 # only died in the self-check -- safe, but the gate was testing the wrong
 # thing and the awk path itself was dead code (nothing ever called it).
 pm_crc32_available() {
+    # $PM_DIR, not the installed path: the probe has to work from a checkout
+    # and from any module id, and "busybox" is already the last entry of the
+    # loop -- a second probe after it tested the same binary twice.
     for a in /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox busybox; do
-        if "$a" crc32 /data/adb/modules/pianomax/module.prop >/dev/null 2>&1; then return 0; fi
+        if "$a" crc32 "$PM_DIR/module.prop" >/dev/null 2>&1; then return 0; fi
     done
-    if busybox crc32 /data/adb/modules/pianomax/module.prop >/dev/null 2>&1; then return 0; fi
     return 1
 }
 
@@ -129,16 +133,24 @@ pm_export_run() {
     } >> "$zip"
     rm -f "$idx"
     # Self-check before shipping: a silently corrupt container is worse than
-    # no container.  busybox unzip -t validates every CRC; on any failure
-    # the zip is removed and the kv text stands alone as the deliverable.
-    # unzip has nothing to do with the awk choice: reusing $PM_AWK here turns
-    # "awk unzip -t" into a guaranteed failure whenever the awk probe picked
-    # the bare interpreter, and a working zip then dies in the self-check on
-    # a box without standalone unzip.  Probe the unzip carriers separately.
+    # no container.  unzip -t validates every CRC; on any failure the zip is
+    # removed and the kv text stands alone as the deliverable.
+    # unzip has nothing to do with the awk choice, so $PM_AWK must not appear
+    # here: "awk unzip -t" is a guaranteed failure whenever the awk probe
+    # picked the bare interpreter, and a working zip would then die in the
+    # self-check on a box without standalone unzip.  The two carriers take
+    # different invocations.  busybox carries unzip as an applet, so it is
+    # "<busybox> unzip -t".  A standalone unzip binary is already unzip, so
+    # it is "<unzip> -t" -- feeding it the applet name too became
+    # "unzip unzip -t", which always fails and made every good zip look
+    # corrupt on any box without busybox.
     PM_UNZIP=""
-    for u in /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox busybox unzip; do
-        if "$u" unzip -t "$zip" >/dev/null 2>&1; then PM_UNZIP="$u"; break; fi
+    for u in /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox busybox; do
+        if "$u" unzip -t "$zip" >/dev/null 2>&1; then PM_UNZIP="$u unzip"; break; fi
     done
+    if [ -z "$PM_UNZIP" ] && command -v unzip >/dev/null 2>&1; then
+        if unzip -t "$zip" >/dev/null 2>&1; then PM_UNZIP="unzip"; fi
+    fi
     if [ -n "$PM_UNZIP" ]; then
         pm_logn "export: zip=$zip"
         echo "export: $zip"

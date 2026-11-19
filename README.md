@@ -24,13 +24,13 @@
 
 > [!WARNING]
 > 仅支持小米平板 8 Pro（piano / SM8750P）。脚本内置设备检查，其他机型安装后不会生效，也不会改动任何系统参数。
-> 从 beta 升级前请先在模块管理中移除旧版再安装新版；跨版本直接覆盖未经测试。
+> **升级**：从最初的 `v1.0.0-beta` 升级请先在模块管理中移除旧版再安装新版；`v1.0.0-beta.4` / `beta.5` 等后续 beta 可直接覆盖刷入。
 
 ## 下载
 
 <div align="center">
 
-[![下载最新版](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-PianoMax--v1.0.0--beta.5.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip)
+[![下载最新版](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-PianoMax--v1.0.0--beta.6.zip-2ea44f?style=for-the-badge&logo=github)](https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.6/PianoMax-v1.0.0-beta.6.zip)
 
 </div>
 
@@ -95,7 +95,7 @@ WebUI 温控页有四个档位，默认「关闭」。每个档位的区别是**
 
 | 层 | 通道 | 说明 |
 | --- | --- | --- |
-| 框架层 | `cmd thermalservice override-status 0` | 游戏内降画质判定、Unity Adaptive Performance、`PowerManager.getThermalStatus` 走的都是这一层。**内核 governor 与 mi_thermald 完全不受影响** |
+| 框架层 | `cmd thermalservice override-status 0` | 游戏内降画质判定、Unity Adaptive Performance、`PowerManager.getThermalStatus` 走的都是这一层。这一层不碰任何温区。**内核 governor 与 mi_thermald 的降频判定在这一层上不受影响**——但内核层（下一行）作用在同一批温区上，而 mi_thermald 的聚合输入里就有可伪装的计算温区，所以两层叠加时它的输入侧仍会被动到，见下文「对 mi_thermald 的实际影响」 |
 | 内核层 | 计算温区 `emul_temp` 写 25000 | 只影响读 `thermal_zone*/temp` 的读者。`emul_temp` 是只写节点（0200，无 show 句柄），写入后无法回读，效果通过温区温度验证 |
 
 **任何档位下都不会伪装的**：电池、充电、BCL 电流限制、PMIC 结温（69–76，8 个）、无线充电（77），以及机身绊线读取的那 10 个离散温区——**57 58 59 60 63 64 65 66 67 68**。不是 57–68 连续区间：61 与 62 不在机身绊线集合内（62 是 cpu_therm，属于可伪装的计算温区，极致档下它读 25 °C）。硬件过温保护与内核 critical trip 照常工作。
@@ -110,7 +110,7 @@ WebUI 温控页有四个档位，默认「关闭」。每个档位的区别是**
 
 省电档把软温控交还内核，此时任何 emul 档位都会自动降级为「仅框架锁」并记一行日志——否则等于伪造读数让刚被交还的 governor 失明。界面徽标显示的是降级后的实际行为（「仅框架锁」），不是所选档位名。
 
-**开关切换是幂等的**：从极致降到普通会清掉多出来的 21 个温区，降到关闭会解除框架锁。关闭模块（还原出厂值）同样会解除框架锁——这一步曾遗漏，导致关掉模块后框架仍然认为设备处于「正常」热状态。
+**开关切换是幂等的**：从极致降到普通会清掉多出来的 20 个温区（48 - 28 = 20），降到关闭会解除框架锁。关闭模块（还原出厂值）同样会解除框架锁——这一步曾遗漏，导致关掉模块后框架仍然认为设备处于「正常」热状态。
 
 ## 四条通道，不是一条
 
@@ -218,10 +218,11 @@ su -c "sh /data/adb/modules/pianomax/profile.sh list"
 <img src="docs/shots/sched-dark.png" width="32%" alt="调度页">
 <img src="docs/shots/sys-dark.png" width="32%" alt="系统页">
 </p>
+<p align="center"><sub>界面截图取自 v1.0.0-beta.2，仅作版式示意；当前版本的数值与说明文案已更新。</sub></p>
 
 从 KernelSU 模块卡片打开。五个页签：性能、温控、内存、调度、系统。
 
-设计上有四个刻意的选择：
+设计上有七个刻意的选择：
 
 **单次调用获取全部状态。** 页面每几秒调用一次 `control.sh snapshot`，单个进程取回 65 个值（轻量轮询 48 个），而非每个控件各发一条命令。
 
@@ -284,6 +285,7 @@ node tools/release-check.mjs   # 发布前体检：本地包 / tag / 线上资�
 ```
 module/
   module.prop
+  banner.png          模块卡片的横幅图
   post-fs-data.sh     冷启动 GPU 窗口
   service.sh          开机后应用一次
   boot-completed.sh   守护进程自愈

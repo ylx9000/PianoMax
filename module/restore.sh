@@ -153,16 +153,12 @@ for d in "$BUS/LLCC/240b3400.qcom,bwmon-llcc-gold" "$BUS/LLCC/240b7400.qcom,bwmo
     echo 806000 > "$d/max_freq" 2>/dev/null
 done
 
-# The daemon pins the launcher and SystemUI to oom_score_adj -1000.  0 is
-# the normal starting value; lmkd re-tunes it at runtime anyway.
-for p in $(pgrep -f com.miui.home 2>/dev/null) $(pgrep -f com.android.systemui 2>/dev/null); do
-    # Same two-step check as the guard's launcher protection: an editor with
-    # the package name in its command line must not match, and a wrong pid
-    # pinned to -1000 becomes unkillable by lmkd.
-    tr '\000' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -qE '(^|/)com\.(miui\.home|android\.systemui)' || continue
-    echo 0 > "/proc/$p/oom_score_adj" 2>/dev/null
-done
-
+# oom_score_adj is deliberately not touched here any more.  The old code
+# reset the launcher and SystemUI to 0 to undo the guard's -1000 pin, but the
+# pin itself was removed in beta.4 (a managed app has no correct fixed adj;
+# AMS recomputes it from the foreground/visible state and writes its own value
+# back), so there is nothing left to undo.  Writing 0 here would be a second
+# writer racing AMS for no benefit.
 settings put secure user_refresh_rate 120 2>/dev/null
 settings put secure miui_refresh_rate 120 2>/dev/null
 settings delete secure speed_mode_enable 2>/dev/null

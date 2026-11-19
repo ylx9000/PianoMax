@@ -226,25 +226,18 @@ pm_build_zone_cache() {
     echo "$PM_SPOOF_CORE" > "$PM_DIR/.tz_spoofable_core"
 }
 
-# Spot-check three spread-out entries rather than the first one.  A ROM that
-# renumbers zones does not have to touch zone 0, and a single-line probe made
-# the whole cache look valid off one surviving zone.  Variable names are
+# The cache is re-validated on every use, so a ROM update that renumbers zones
+# cannot leave the spoof writing to the wrong sensor.  Variable names are
 # _cz_-prefixed: mksh has no function-local scope and the caller's want/zn
 # must survive this call.
-# Spot-check first / middle / last.  Reading only the first few entries
-# validated a single point: on this kernel zones 0, 15 and 22 are the same
-# "aoss-N" family, so three consecutive lines could all pass while the rest
-# of the file was stale.  Three spread-out samples cost the same and actually
-# prove the numbering still holds.
 pm_zone_cache_ok() {
     [ -s "$PM_DIR/.tz_types" ] || return 1
-    # One pass over the file, keeping the first, the middle and the last entry
-    # without sed / cat / pipelines: this runs inside apply_temp_spoof, and on
-    # this box every fork is ~6 ms against a 1 s tick.
-    # Three probes: first, middle and last.  Reading only the first few lines
+    # Three probes, then a full pass.  Reading only the first few entries
     # validated a single point -- on this kernel zones 0, 15 and 22 are all the
     # "aoss-N" family, so three consecutive entries could pass while the rest
-    # of the file was stale.
+    # of the file was stale.  The probes are cheap cover for a file that is
+    # about to be walked in full anyway; the full pass below is what actually
+    # decides.
     #
     # Two short passes over a 78-line file: count first, then pick the middle
     # by index.  A one-pass slow cursor was tried and was off by one -- it

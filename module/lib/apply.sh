@@ -292,8 +292,8 @@ apply_temp_spoof() {
         TIER=lock
     fi
     # Clear whatever a wider tier left behind before deciding what this tier
-    # writes.  Downgrading max -> normal used to leave the 21 zones only max
-    # covers still reading 25 C, and max -> lock left all 48 -- so "lock" and
+    # writes.  Downgrading max -> normal used to leave the 20 zones only max
+    # covers still reading 25 C (48 - 28 = 20), and max -> lock left all 48 -- so "lock" and
     # "off" would report themselves while the device still behaved like max.
     # The cleanup is keyed on the target list, so switching between emul tiers
     # clears exactly the difference and nothing else.
@@ -306,7 +306,15 @@ apply_temp_spoof() {
     fi
     _all=$(cat "$PM_DIR/.tz_spoofable" 2>/dev/null)
     # With no usable list there is nothing to compare against; fall back to
-    # sweeping every classified zone so a stale 25 C can never survive.
+    # sweeping every classified zone so a stale 25 C can never survive.  The
+    # fallback list is deliberately WIDER than the live set -- it names every
+    # family the module has ever classified as spoofable, not just this boot's
+    # subset -- because its only job is cleanup: a zone that reads exactly
+    # 25000 gets cleared (the write is gated on that read below), and every
+    # protected family -- battery, charger, BCL, PMIC, skin -- is absent from
+    # the list, so a wider sweep cannot reach a sensor that must stay real.
+    # Narrowing it to the current classification would just reintroduce the
+    # residue this loop exists to remove.
     [ -n "$_all" ] || _all="0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21
 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 56 62"
     _stale=0

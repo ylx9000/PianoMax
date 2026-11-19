@@ -338,10 +338,10 @@ cmd_presets() {
 }
 
 # ---- operation audit ----------------------------------------------------
-# Every mutating call from the WebUI lands here once.  She asked for richer
-# logs to develop against: an action log answers "what changed, when, by
-# which surface" without correlating guard ticks.  Read-only views
-# (snapshot/presets) are excluded -- they fire every 3 s and would flood.
+# Every mutating call from the WebUI lands here once: an action log answers
+# "what changed, when, by which surface" without correlating guard ticks.
+# Read-only views (snapshot/presets) are excluded -- they fire every 3 s and
+# would flood the 128 KB window.
 audit() { pm_logn "ui_action: $1 (from $2)"; }
 caller_surface="webui"
 case "$1" in

@@ -24,13 +24,6 @@ PM_COMP=guard   # log v2: RFC5424 APP-NAME equivalent, one per entry script
 # effects inside the guard loop by accident.
 T_ROOT=/data/vendor/thermal
 
-# Deliberately empty.  There is no correct fixed adj for a managed app (see
-# the launcher block below), so this is the off switch, not a tunable: the
-# assignment exists so the sweep branches cleanly and so anyone reading the
-# config cannot mistake its absence for an oversight.  Setting it to a value
-# makes the guard fight AMS for that process, which is the bug, not the fix.
-PM_LAUNCHER_PIN=""
-
 # Put the ceiling back to the full spec.  Called on re-arm so a stale staged
 # value does not survive a full restore.
 held_reset() {
@@ -149,7 +142,7 @@ done
 mkdir -p "$PM_DIR/.guard_lock" 2>/dev/null
 echo $$ > "$PM_DIR/.guard_lock/pid"
 
-pm_logn "up: tick loop entered (pid $$, pmax v1.0.0-beta.5)"
+pm_logn "up: tick loop entered (pid $$, pmax v1.0.0-beta.6)"
 
 # Two independent tripwires, because the two sensor families answer different
 # questions:
@@ -228,9 +221,8 @@ SPOOF_MODE=$(cat "$PM_DIR/.spoof" 2>/dev/null)
 while true; do
     # Tick counter advances at the top of the body so every throttled block
     # below sees the same beat.  It used to advance after the snapshot write,
-    # which meant the launcher scan (five-tick cadence) ran one tick stale
-    # against the override re-assert (also five-tick) -- two periodic jobs
-    # that were meant to interleave silently drifted apart.
+    # which left the periodic blocks below one tick out of phase with each
+    # other; two jobs meant to interleave silently drifted apart.
     STREAK=$((STREAK + 1))
 
     # ---- shutdown paths -------------------------------------------------
@@ -664,61 +656,6 @@ while true; do
                 fi
             fi
         fi
-    fi
-
-    # ---- launcher protection ---------------------------------------------
-    # A dying launcher is what turns a memory spike into a reboot loop; the
-    # kernel picks victims by oom_score_adj.  pgrep forks, so this runs every
-    # fifth tick rather than on every pass.  Only real processes get written:
-    # the pid must still exist and its cmdline must name the package at the
-    # start (an editor open on a file with that name must not match).
-    if [ $((STREAK % 5)) -eq 0 ]; then
-        # Walk /proc directly instead of pgrep: pgrep -f costs two forks
-        # per round and matches any cmdline *containing* the package name
-        # (an editor with the file open, a grep on a log).  The case below
-        # only matches an argv head or a path component that IS the
-        # package -- same guardrail; two forks per process, not one pgrep.
-        for p in /proc/[0-9]*; do
-            [ -r "$p/cmdline" ] || continue
-            # cmdline is NUL-terminated with NO trailing newline: a line read
-            # always hits EOF, so `read ... || continue` skipped EVERY process
-            # (852 iterations, 0 matches, 2026-10-22 measured).  Read the raw
-            # bytes and strip NULs instead -- tr is two forks only on match
-            # candidates that reach the case, none otherwise.
-            # A dying process can wedge a plain read on /proc/<pid>/cmdline forever
-            # (procfs race, hit live 2026-10-23: guard stuck 8 min in pipe_read).
-            # timeout 1 caps the worst case; a live process reads in microseconds.
-            c=$(timeout 1 tr '\000' ' ' < "$p/cmdline" 2>/dev/null) || continue
-            case "$c" in
-                com.miui.home*|com.android.systemui*|*/com.miui.home*|*/com.android.systemui*) ;;
-                *) continue ;;
-            esac
-            adj=""; IFS= read -r adj < "$p/oom_score_adj" 2>/dev/null
-            # The scan and its readout stay; the write is off by default.
-            #
-            # The value cannot be chosen by the module at all: AOSP ProcessList
-            # defines -1000 as NATIVE_ADJ, "special code for native processes
-            # that are not being managed by the system (so don't have an oom adj
-            # assigned by the system)", with SYSTEM_ADJ at -900.  A launcher is
-            # a managed app, so no fixed value exists that is correct for it --
-            # AMS recomputes the adj from the app's foreground/visible state
-            # (FOREGROUND_APP_ADJ is 0) and simply writes its own value back,
-            # so a pin here is a write war at 5 s per side, not a protection.
-            #
-            # What was actually observed on this device: the 2026-10-23 launcher
-            # restart loop.  What was NOT observed: any logcat evidence tying it
-            # to this write.  The old comment asserted a mechanism that no
-            # capture supports; this one states the constant and leaves the
-            # diagnosis to the device (see CHANGELOG beta.4/beta.5).
-            #
-            # PM_LAUNCHER_PIN is declared empty at the top of this file, so the
-            # branch below is dead by construction.  It stays because removing
-            # the scan would also remove the only readout of what AMS assigned.
-            if [ -n "$adj" ] && [ "$adj" != "-1000" ] && [ -n "$PM_LAUNCHER_PIN" ]; then
-                echo "$PM_LAUNCHER_PIN" > "$p/oom_score_adj" 2>/dev/null
-                pm_logd "launcher_pin: ${p##*/} adj=$adj target=$PM_LAUNCHER_PIN"
-            fi
-        done
     fi
 
     # ---- snapshot for the UI ---------------------------------------------
