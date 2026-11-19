@@ -4,8 +4,8 @@
 # Licensed under the PolyForm Noncommercial License 1.0.0.
 #
 # KernelSU shows whatever this prints after the user taps the action button.
-# Wide CJK glyphs cannot be aligned with an ASCII border, so the card is
-# open on the right on purpose instead of pretending to be a box.
+# Wide CJK glyphs cannot be aligned with an ASCII border, so the card is open
+# on the right rather than drawn as a box.
 
 . "$(dirname "$0")/lib/common.sh"
 PM_COMP=ui   # log v2: RFC5424 APP-NAME equivalent, one per entry script
@@ -33,11 +33,9 @@ card() {
     t1=$(pm_cat /sys/class/thermal/thermal_zone13/temp); pm_num "$t1" || t1=0
     t2=$(pm_cat /sys/class/thermal/thermal_zone23/temp); pm_num "$t2" || t2=0
     t3=$(pm_cat /sys/class/power_supply/battery/temp);   pm_num "$t3" || t3=0
-    # The card used to print these raw, so with the emul layer up it showed
-    # "CPU 25° GPU 25°" -- a fabricated measurement on the one screen a user
-    # sees without opening the WebUI.  status.sh already has the contract for
-    # this ( spoofed clusters report "not observable" ); mirror it here.
-    # 电池 reads true on every tier -- it is in the protected family.
+    # Spoofed clusters report "-" rather than the emulated 25°, matching the
+    # contract status.sh uses.  Battery reads true on every tier: it is in the
+    # protected family.
     SPOOFED=$(cat "$PM_DIR/.spoof" 2>/dev/null)
     case "$SPOOFED" in
         on|max|normal) CV="-"; GV="-" ;;

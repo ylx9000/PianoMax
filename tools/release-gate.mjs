@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// 发版前置闸门：tag 与仓库里的版本声明必须完全对齐。
+// Verify tag, module.prop, update.json, and changelog alignment before building.
 //
-// 任何一条不匹配就非零退出，Actions 会停在构建之前 —— 宁可这次不发布，
-// 也不要发出一个 update.json 指向 404、或者 module.prop 写着上个版本的包。
+// Any mismatch exits non-zero and Actions stops before the build, so a release
+// never ships an update.json that points at a 404 or a module.prop that still
+// names the previous version.
 //
 // 用法：
 //   node tools/release-gate.mjs            # tag 取自 GITHUB_REF_NAME 或当前 HEAD 上的 tag

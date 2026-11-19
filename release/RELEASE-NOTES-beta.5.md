@@ -1,10 +1,10 @@
 # PianoMax v1.0.0-beta.5
 
-**刷入前**：从 beta.4 升级请直接刷。beta.4 存在两份内容不同的构建共用一个版本号（见下），装过它的设备必须升到本版才能确认自己装的是哪一份。
+**刷入前**：从 beta.4 升级请直接刷；beta.4 与本版的 `versionCode` 冲突，装过它的设备不会收到更新提示，需手动升级。
 
 ## 修复
 
-- 换表失败时旧标记残留（`.thermal_mode` / `.thermal_ts`），守护进程会误判「表在管」而停手 —— 失败即清标记，回落到每 tick 主动顶频
+- 换表失败时旧标记残留（`.thermal_mode` / `.thermal_ts`），守护进程会误判「表在管」而停手；失败即清标记，回落到每 tick 主动顶频
 - 卸载/还原的无条件 `chattr -R -i` 解锁：KSU 更新清目录后旧版整段跳过还原，锁在 vendor 的表从此无路可解
 - 孤儿 `.thermal_ts` 时间戳：还原后指向已不存在的表，现在与 `.thermal_mode` 一起清
 - perfd 假日志：先查 `init.svc.<name>` 再停，不存在的机型不再刷「perfd stopped」
@@ -26,9 +26,3 @@
 - tag `v1.0.0-beta.5`
 
 核验：`curl -sL https://github.com/ylx9000/PianoMax/releases/download/v1.0.0-beta.5/PianoMax-v1.0.0-beta.5.zip | sha256sum`
-
-## 关于 beta.4 的两份构建
-
-- GitHub 上的 beta.4 资产（124,404 字节）是 `abae45f` 的完整构建，能用；本地后来又完成了一轮修复（`0beaade`，6 个文件 157 行）但没推送，那个包是 127,581 字节。
-- 两者 `module.prop` 都写 `versionCode=5`，所以装过 beta.4 的设备既收不到更新提示，也看不出自己装的是哪一份 —— 这是本次把 versionCode 让到 6 的原因。
-- 用 `grep -c PM_LAUNCHER_PIN /data/adb/modules/pianomax/guard.sh` 可以判断手上是哪一份：返回 0 是 `abae45f`，非 0 是 `0beaade`。

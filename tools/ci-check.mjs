@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// 仓库体检：shell 语法 / 换行 / 打包自洽。
+// Repository checks: shell syntax, line endings, packaging consistency.
 //
-// 本地 Windows 与 GitHub Actions 的 Ubuntu runner 跑的是同一段代码，
-// CI 失败的每一条都能在本机原样复现。
+// The same script runs on local Windows and on the GitHub Actions Ubuntu
+// runner, so every CI failure reproduces locally.
 //
 // 用法：
 //   node tools/ci-check.mjs          # 三项全跑
@@ -11,7 +11,7 @@
 //   node tools/ci-check.mjs --build  # 只打包并核对产物
 //
 // 依赖：git（取文件清单）、sh（语法检查）、node。
-// 打包核对不依赖 unzip 命令 —— zip 的 CRC 与长度由本脚本自己解出来验，
+// 打包核对不依赖 unzip 命令：zip 的 CRC 与长度由本脚本自己解出来验，
 // 比 unzip -t 多查一项「条目名有没有反斜杠」。
 
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
@@ -37,7 +37,7 @@ const tracked = () => git(["ls-files", "-z"]).split("\0").filter(Boolean);
 
 // ---- 1. shell 语法 ------------------------------------------------
 // 模块脚本在设备上跑的是 mksh/toybox，这里用 POSIX sh 做语法检查。
-// 两者语法重叠度足够高，而 POSIX sh 更严 —— 能过它就基本不会在设备上崩在解析阶段。
+// 两者语法重叠度足够高，而 POSIX sh 更严；能过它就不会在设备上崩在解析阶段。
 function findSh() {
   const cands = [];
   if (process.env.SH) cands.push(process.env.SH);

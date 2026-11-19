@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// 组装 Release 正文，并保证正文里的校验值与本次产出的 zip 完全一致。
+// Assemble the release body with the byte count and SHA-256 of the asset.
 //
-// 为什么要有这一步：tools/release-check.mjs 第 6 项会解析正文里的
-// 「N 字节」与「SHA-256」，与线上实际下载到的包比对。项目每次改代码都会
-// 让包变几个字节，手写的数字迟早过期。这里在发布时现场计算，写进正文的
-// 一定是这一个包的真值。
+// The numbers are read from the build output at release time rather than
+// written by hand, so they describe the archive that is actually uploaded.
+// tools/release-check.mjs check 6 parses these two values back out of the
+// published body and compares them with the downloaded asset.
 //
 // 用法：
 //   node tools/make-release-body.mjs <tag> [--out <文件>]
@@ -17,9 +17,9 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // 参数：<tag> [--out <文件>] [--asset <zip 路径>]
-// --asset 用来指定「算校验值的那份包」。默认是刚构建的 release/PianoMax-<tag>.zip，
-// 手动补发时 CI 会传线上已上传的资产 —— 正文里的数字必须描述线上那一份，
-// 而不是这次重新构建出来的那一份，否则 release-check 第 6 项当场对不上。
+// --asset 指定「算校验值的那份包」，默认是刚构建的 release/PianoMax-<tag>.zip。
+// 手动补发时 CI 会传线上已上传的资产：正文里的数字必须描述线上那一份，
+// 而不是本次重新构建出来的那一份，否则 release-check 第 6 项会判为不一致。
 const argv = process.argv.slice(2);
 const take = (flag) => {
   const i = argv.indexOf(flag);

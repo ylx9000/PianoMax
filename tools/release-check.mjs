@@ -1,15 +1,20 @@
 #!/usr/bin/env node
-// 发布链路体检：一条命令回答「线上到底是什么」。
+// Verify the published release against the repository, end to end.
 //
-// 查五件事，任何一项不一致就非零退出：
-//   1. update.json 的 versionCode 与 module.prop 一致
-//   2. update.json 的 zipUrl 能 200，且大小与本地 release/ 里的包一致
-//   3. 下载到的 zip 逐项 sha256 与 tag 树的 module/ 相同
-//   4. 远端 tag 指向的提交 == 本地 HEAD（或至少 == 本包对应的提交）
-//   5. Release 正文里的 sha256 / 字节数 / commit 与实际一致
+// Six checks; any failure exits non-zero:
+//   1. module.prop defines version / versionCode
+//   2. update.json matches module.prop, locally and on raw.githubusercontent
+//   3. the zipUrl asset downloads and is compared with release/<version>.zip
+//      (a difference is a WARN: the local copy may simply be unpublished)
+//   4. every entry in the downloaded zip hashes to the bytes in the tag tree
+//   5. the remote tag equals the local tag, and no file shipped in the zip
+//      changed after it (comment-only edits do not count)
+//   6. the release body quotes the asset name, byte count and SHA-256 that the
+//      asset actually has
 //
-// 用法：node tools/release-check.mjs
-// 依赖：git、curl.exe（Windows）。不需要 token —— 只读公开接口。
+// Usage: node tools/release-check.mjs
+// Needs git and curl.exe on Windows.  Only public endpoints are read, plus an
+// optional token from git credential for the release body (check 6).
 
 import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -72,8 +77,8 @@ const localZip = path.join(root, "release", "PianoMax-" + ver + ".zip");
 if (existsSync(localZip)) {
   const lz = readFileSync(localZip);
   // 本地包是「下一次发版的候选」，线上包是「已经发出去的那一份」。
-  // 只要 tag 树与线上资产对得上（§4），两者不同只说明本地还有未发布的
-  // 改动，不是发布链路的错误 —— 记为 WARN。
+  // 只要 tag 树与线上资产对得上（§4），两者不同只说明本地还有未发布的修改，
+  // 不是发布链路的错误，因此记为 WARN。
   if (sha256(lz) === sha256(dl)) ok("下载件 == 本地 release/PianoMax-" + ver + ".zip");
   else warn("本地包与线上资产不同（本地 " + lz.length + " B / " + sha256(lz).slice(0, 16) + "），说明当前工作树有未发布的改动");
 } else warn("本地没有 release/PianoMax-" + ver + ".zip，跳过比对");
@@ -150,7 +155,7 @@ else {
 }
 
 // Release 正文用 token 查（git credential 里通常有）。
-// 没有 token 或限流就 warn 跳过 —— 正文里的校验值是辅助信息，
+// 没有 token 或限流就 warn 跳过。正文里的校验值是辅助信息，
 // 真正的判据是 §3/§4 的字节比对：包 == 本地、包 == tag 树。
 function readPageBody() {
   let tok = "";

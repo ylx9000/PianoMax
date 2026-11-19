@@ -20,10 +20,10 @@
 
 A KernelSU userspace frequency governor module for the Xiaomi Pad 8 Pro (piano / SM8750P).
 
-Four presets — Power save / Balanced / Performance / Extreme. Each preset is a complete set of CPU / GPU / bus ceilings plus two temperature tripwires, applied as a whole. A resident daemon re-asserts the ceiling every second. Battery, charger, BCL and PMIC zones keep their factory readings and protection at all times; there is also a **default-off** temperature spoof switch — see "Temperature spoof" below for exactly what it does and does not cover.
+Four presets: Power save / Balanced / Performance / Extreme. Each preset is a complete set of CPU / GPU / bus ceilings plus two temperature tripwires, applied as a whole. A resident daemon re-asserts the ceiling every second. Battery, charger, BCL and PMIC zones keep their factory readings and protection. Temperature spoofing is a separate switch, off by default; see "Temperature spoof" below for what it covers and what it costs.
 
 > [!WARNING]
-> Only the Xiaomi Pad 8 Pro (piano / SM8750P) is supported. A device check aborts every script on anything else — nothing is modified.
+> Only the Xiaomi Pad 8 Pro (piano / SM8750P) is supported. A device check aborts every script on anything else, so nothing is modified.
 > **Upgrading:** from the original `v1.0.0-beta`, remove the old module in KernelSU Manager first. From `v1.0.0-beta.4` / `beta.5` and later betas, flashing over the top works directly.
 
 ## Download
@@ -51,7 +51,7 @@ Switching applies one complete set. Sliders remain available afterwards; a slide
 - **Powersave** returns soft thermal control to the kernel: at those clocks the stock curve never throttles, so silencing it would only remove a layer of protection.
 - Presets write the same four state files as the sliders; what the UI shows is what is in force.
 - After a preset switch the silicon still carries the previous preset's heat and could trip the new, lower tripwire immediately. A 15-second grace period follows each switch: ceilings are still asserted, but back-off is not evaluated until the thermal state has settled.
-- The GPU column is a **cap**: the GPU has its own devfreq governor (msm-adreno-tz) and idles at lower levels by design. Whether the cap is in force is shown by max_gpuclk on the WebUI thermal page.
+- The GPU column is a **cap**: the GPU has its own devfreq governor (msm-adreno-tz) and idles at lower levels when nothing is running. Whether the cap is in force is shown by max_gpuclk on the WebUI thermal page.
 
 From a shell: `sh /data/adb/modules/pianomax/profile.sh powersave|balanced|performance|extreme`, and `profile.sh list` to list all four.
 
@@ -80,74 +80,6 @@ Bottom line: treat PianoMax as the only performance module on the device. Coexis
 | DDR | 4761000 kHz | memlat and bwmon votes |
 | LLCC | 1211000 kHz | memlat and bwmon votes |
 
-## Four channels, not one
-
-**1. cpu_limits is a command channel.** `/sys/devices/virtual/thermal/thermal_message/cpu_limits` always reads back empty, but a write there is the ceiling. Writing `scaling_max_freq` alone is overwritten by `mi_thermald` within two seconds; cpu_limits is not.
-
-**2. Disabling a zone only stops the kernel.** Setting compute zones to `disabled` stops the kernel thermal governor from raising its cooling devices. `mi_thermald` is a userspace daemon writing cpu_limits directly and does not consult zone modes. Disabling zones alone is therefore not enough — the ceiling must be held by a daemon.
-
-**3. The daemon is the third channel.** `guard.sh` reads the real ceiling every second and rewrites cpu_limits whenever it falls below the target. Its role is not acceleration but persistence: without it, the ceiling slides from 3532800 to 1785600 within 20 seconds of disabling zones. Measured on this device.
-
-**4. Replacing the table is the fourth.** `mi_thermald` decides from an AES-encrypted thermal policy table that lives in `/odm/etc`, not `/vendor/etc`. `lib/thermal.sh` swaps and reloads it. The first three channels rescue frequencies after the system has already throttled; this one stops the system from following the stock curve at all.
-
-## Thermal table swap
-
-`mi_thermald` is a userspace daemon whose throttling decisions come from an encrypted policy table. That table is **not in `/vendor/etc` — it is in `/odm/etc`**, and the daemon reads it once at start and applies it forever after.
-
-That is why merely writing frequencies back is such a grind: you are racing a process that rewrites the same nodes from its own table every second. So the module takes the other road — **replace the table** and let the daemon do the work.
-
-| Item | Value |
-| --- | --- |
-| Vendor location | `/odm/etc/thermal*.conf` (49 tables, one per scenario) |
-| Deployed location | `/data/vendor/thermal/config/` |
-| Encryption | AES-128-CBC, key = IV = `thermalopenssl.h` |
-| Takes effect | overwrite the file, then restart the daemon (`setprop ctl.restart mi_thermald`) |
-| Config dir | `0771 root:system`; `chattr -i` before writing, `+i` after so cloud control cannot revert it |
-
-The module ships three tables under `thermal/`, one each for Balanced / Performance / Extreme (Power save swaps nothing — it hands thermal policy back to the kernel). Switching presets swaps the table and bounces the daemon; the policy vacuum is 1–2 s and the guard re-pins the ceiling right after.
-
-### Scene tables coexist with ours
-
-Measured (2026-10-22): the table has a **scene dimension**. `/sys/class/thermal/thermal_message/sconfig` is the scene number (-1 default); writing 1 makes the daemon reload `thermal-cgame.conf` (the game table) immediately, and writing -1 reloads `thermal-normal.conf` -- the nanosecond mtime of `decrypt.txt` changed on both transitions. That means:
-
-- **During gameplay the vendor's game table runs, not the module's extreme table.** The vendor tunes that table for high load; reasonable behavior, and the module does not fight it.
-- Our table occupies one file slot (`thermal-normal.conf`), and the daemon only reads it, so scene switching **can never overwrite or contaminate it** -- exiting a game returns control to the extreme table.
-- The other 48 scene tables stay factory (cgame / boost / camera / 4k etc.); the module only touches the normal slot.
-
-### Restore, and the trap it had
-
-Before the first swap the module snapshots the vendor tables into `.thermal_orig/`, and `restore`/uninstall puts them back. **That snapshot used to be captured from the wrong directory**: the earlier code read `/data/vendor/thermal/config`, which is precisely where our own table is placed — so any capture after a swap stored our table as if it were the vendor's, and `revert` then faithfully restored the thing it was supposed to undo. Capture now reads `/odm/etc` first and skips any file byte-identical to a shipped preset table.
-
-### How to tell it worked
-
-Every time the daemon loads a table it rewrites `/data/vendor/thermal/decrypt.txt` (the plaintext of whatever it loaded last), with nanosecond mtime. After a swap the module polls that timestamp and only counts the swap as successful once it moves:
-
-```
-thermal: daemon reloaded (table extreme stamped)
-```
-
-If it does not move it logs `thermal: no reload detected after restart`. That is a downgrade, not a failure — the table is physically in place, the daemon simply was not observed re-reading it, and the guard's frequency re-pin keeps working regardless.
-
-`piano_diag.sh` cross-checks `.thermal_mode` (what the module believes is deployed) against the md5 of the deployed file.
-## Temperature policy
-
-Compute zones (CPU, GPU, board sensors) are switched to `disabled` so the kernel no longer throttles on them. Battery, charger, BCL current limits and PMIC junction sensors are **left untouched**; `mi_thermald` keeps running.
-
-The daemon watches two **independent** families of sensors, because their magnitudes differ so much that a single threshold cannot work:
-
-| Family | Sensors | Tripwire (per preset) | Why |
-| --- | --- | --- | --- |
-| Silicon | CPU clusters, GPU, PMIC junction | 90 / 100 / 105 °C | full-load steady state is 90-105; shutdown is around 110 |
-| Skin | quiet_therm, battery, charger, panel | 50 / 55 / 62 / 75 °C | hand feel and battery longevity |
-
-Crossing a tripwire does **not** restore everything at once; it stages down: first to 88% of the preset base, then to 78% if still hot, and only the third stage hands everything back and pauses assertion. With temperatures settled for two minutes, one stage is given back every two minutes.
-
-"Always maximum frequency" and "never above the tripwire" cannot both hold; one-shot restoration would make the module oscillate every minute.
-
-**Why mi_thermald is never killed**: tsens on this SoC is level-triggered. With the daemon stopped, nobody clears the interrupt status, the CPU services the same interrupt thousands of times per second, and the system stalls. The module only ever starts it.
-
-**About emul_temp**: the temperature spoof is a separate four-tier switch, off by default. It blinds *readers*, not the hardware: PMIC junctions, the chassis family and the kernel critical trip never take part. See "Temperature spoof" for what each tier costs.
-
 ## Temperature spoof (default off · four tiers)
 
 Four tiers on the thermal tab of the WebUI, default off. Each tier differs in **how many sensors stop telling the truth**.
@@ -163,22 +95,90 @@ Two mechanisms:
 
 | Layer | Channel | What it reaches |
 | --- | --- | --- |
-| Framework | `cmd thermalservice override-status 0` | the in-game quality decision, Unity Adaptive Performance, `PowerManager.getThermalStatus`. This layer touches no zone. **The kernel governor and mi_thermald's throttling decision are untouched at this layer** — but the kernel layer below writes the same zones, and mi_thermald's aggregate input includes spoofable compute zones, so with both layers up its input side is still affected; see "Effect on mi_thermald" |
+| Framework | `cmd thermalservice override-status 0` | the in-game quality decision, Unity Adaptive Performance, `PowerManager.getThermalStatus`. This layer touches no zone, and the kernel governor and mi_thermald's throttling decision are untouched at this layer. The kernel layer below, however, writes the same zones, and mi_thermald's aggregate input includes spoofable compute zones, so with both layers up its input side is still affected; see "Effect on mi_thermald" |
 | Kernel | `emul_temp` = 25000 on compute zones | anything reading `thermal_zone*/temp`. `emul_temp` is write-only (mode 0200, no show handler), so the effect is verified through the zone temperature, never read back |
 
-**Never spoofed on any tier:** battery, charger, BCL current limit, PMIC junction (69–76, eight zones), wireless charging (77), and the ten discrete zones the chassis tripwire reads — **57 58 59 60 63 64 65 66 67 68**. That is not the contiguous 57–68 range: 61 and 62 are outside the chassis set (62 is cpu_therm, a spoofable compute zone that reads 25 °C at Max).
+**Never spoofed on any tier:** battery, charger, BCL current limit, PMIC junction (69–76, eight zones), wireless charging (77), and the ten discrete zones the chassis tripwire reads: **57 58 59 60 63 64 65 66 67 68**. Those ten are not the contiguous 57–68 range; 61 and 62 are outside the chassis set (62 is cpu_therm, a spoofable compute zone that reads 25 °C at Max).
 
-**Effect on mi_thermald:** its VIRTUAL-SENSOR decision input aggregates cpu_therm with weight 8, and cpu_therm is spoofable — measured in thermal.dump, the aggregate sits at a constant 25000 while the emul layer is up. So beyond the table swap, the spoof also touches the daemon's input side. Its other inputs (quiet_therm and the chassis family) stay real, and with a swapped table in charge the daemon is enforcing our ceiling anyway, so this is a known and accepted side effect — but "mi_thermald is completely unaffected by the spoof" is not a true statement. Hardware over-temperature protection and the kernel critical trip stay armed.
+**Effect on mi_thermald:** its VIRTUAL-SENSOR decision input aggregates cpu_therm with weight 8, and cpu_therm is spoofable. Measured in thermal.dump, the aggregate sits at a constant 25000 while the emul layer is up, so beyond the table swap the spoof also touches the daemon's input side. Its other inputs (quiet_therm and the chassis family) stay real, and with a swapped table in charge the daemon is enforcing our ceiling anyway, which keeps this within the expected range. Hardware over-temperature protection and the kernel critical trip stay armed.
 
 **Why the tiers matter:** at Max the 48 emulated zones leave the module's own chip tripwire with only the eight PMIC junctions plus the battery. Measured on this device, only `pmih010x_lite_tz` (zone 71) runs warm; the rest sit in the low 30s against a 105 °C threshold. The input is gone, not the threshold too high. Normal masks only 28 and keeps 29 real readings (57 - 28), so the tripwire still has real inputs to act on.
 
-Any emul tier also tightens the chassis tripwire by 3 °C: with the chip side blinded, the chassis is the only soft protection still alive. The WebUI reports unobservable temperatures as `—` rather than a fabricated number.
+Any emul tier also tightens the chassis tripwire by 3 °C: with the chip side blinded, the chassis is the only soft protection still alive. The WebUI shows unobservable temperatures as `—` rather than a fabricated number.
 
-On the Power save preset, which hands soft thermal policy back to the kernel, every emul tier degrades to "Lock only" and logs it — faking readings there would blind the very governor that preset just restored. The UI badge shows the behaviour actually in effect (framework lock), not the tier name you picked.
+On the Power save preset, which hands soft thermal policy back to the kernel, every emul tier degrades to "Lock only" and logs it, because faking readings there would blind the governor that preset just restored. The UI badge shows the behaviour actually in effect (framework lock), not the tier name you picked.
 
 **Tier switches are idempotent**: Max → Normal clears the 20 zones that only Max covers (48 - 28 = 20), and → Off releases the framework lock. Restoring the module to factory values releases it too; omitting that step left the framework believing the device was permanently cool after the module was switched off.
 
 Both layers of this feature, and the freezes/losses each can suffer, are disclosed in [DISCLAIMER.en.md](DISCLAIMER.en.md).
+
+## Four channels, not one
+
+**1. cpu_limits is a command channel.** `/sys/devices/virtual/thermal/thermal_message/cpu_limits` always reads back empty, but a write there is the ceiling. Writing `scaling_max_freq` alone is overwritten by `mi_thermald` within two seconds; cpu_limits is not.
+
+**2. Disabling a zone only stops the kernel.** Setting compute zones to `disabled` stops the kernel thermal governor from raising its cooling devices. `mi_thermald` is a userspace daemon writing cpu_limits directly and does not consult zone modes. Disabling zones alone is therefore not enough; the ceiling has to be held by a daemon.
+
+**3. The daemon is the third channel.** `guard.sh` reads the real ceiling every second and rewrites cpu_limits whenever it falls below the target. Its role is persistence, not acceleration: without it, the ceiling slides from 3532800 to 1785600 within 20 seconds of disabling zones. Measured on this device.
+
+**4. Replacing the table is the fourth.** `mi_thermald` decides from an AES-encrypted thermal policy table that lives in `/odm/etc`, not `/vendor/etc`. `lib/thermal.sh` swaps and reloads it. The first three channels rescue frequencies after the system has already throttled; this one stops the system from following the stock curve at all.
+
+## Thermal table swap
+
+`mi_thermald` is a userspace daemon whose throttling decisions come from an encrypted policy table. That table is not in `/vendor/etc`; it is in `/odm/etc`. The daemon reads it once at start and applies it from then on.
+
+Writing frequencies back is therefore a running fight against a process that rewrites the same nodes from its own table every second. The module replaces the table instead, and lets the daemon enforce our limits.
+
+| Item | Value |
+| --- | --- |
+| Vendor location | `/odm/etc/thermal*.conf` (49 tables, one per scenario) |
+| Deployed location | `/data/vendor/thermal/config/` |
+| Encryption | AES-128-CBC, key = IV = `thermalopenssl.h` |
+| Takes effect | overwrite the file, then restart the daemon (`setprop ctl.restart mi_thermald`) |
+| Config dir | `0771 root:system`; `chattr -i` before writing, `+i` after so cloud control cannot revert it |
+
+The module ships three tables under `thermal/`, one each for Balanced / Performance / Extreme. Power save ships none and hands thermal policy back to the kernel. Switching presets swaps the table and bounces the daemon; the policy vacuum is 1–2 s and the guard re-pins the ceiling right after.
+
+### Scene tables coexist with ours
+
+Measured: the table has a **scene dimension**. `/sys/class/thermal/thermal_message/sconfig` is the scene number (-1 default); writing 1 makes the daemon reload `thermal-cgame.conf` (the game table) immediately, and writing -1 reloads `thermal-normal.conf` -- the nanosecond mtime of `decrypt.txt` changed on both transitions. That means:
+
+- **During gameplay the vendor's game table runs, not the module's extreme table.** The vendor tunes that table for high load; reasonable behavior, and the module does not fight it.
+- Our table occupies one file slot (`thermal-normal.conf`), and the daemon only reads it, so scene switching **can never overwrite or contaminate it** -- exiting a game returns control to the extreme table.
+- The other 48 scene tables stay factory (cgame / boost / camera / 4k etc.); the module only touches the normal slot.
+
+### Restore
+
+Before the first swap the module snapshots the vendor tables into `.thermal_orig/`, and `restore`/uninstall puts them back. The snapshot has to come from `/odm/etc`: `/data/vendor/thermal/config` is where this module deploys its own table, so capturing from there stores our table as if it were the vendor's and `revert` puts the same thing back. Capture reads `/odm/etc` first and skips any file byte-identical to a shipped preset table.
+
+### How to tell it worked
+
+Every time the daemon loads a table it rewrites `/data/vendor/thermal/decrypt.txt` (the plaintext of whatever it loaded last), with nanosecond mtime. After a swap the module polls that timestamp and only counts the swap as successful once it moves:
+
+```
+thermal: daemon reloaded (table extreme stamped)
+```
+
+If it does not move it logs `thermal: no reload detected after restart`. The table is physically in place at that point; the module simply could not confirm the daemon re-read it, and the guard's frequency re-pin keeps working regardless.
+
+`piano_diag.sh` cross-checks `.thermal_mode` (what the module believes is deployed) against the md5 of the deployed file.
+## Temperature policy
+
+Compute zones (CPU, GPU, board sensors) are switched to `disabled` so the kernel no longer throttles on them. Battery, charger, BCL current limits and PMIC junction sensors are **left untouched**; `mi_thermald` keeps running.
+
+The daemon watches two **independent** families of sensors, because their magnitudes differ so much that a single threshold cannot work:
+
+| Family | Sensors | Tripwire (per preset) | Why |
+| --- | --- | --- | --- |
+| Silicon | CPU clusters, GPU, PMIC junction | 90 / 100 / 105 °C | full-load steady state is 90-105; shutdown is around 110 |
+| Skin | quiet_therm, battery, charger, panel | 50 / 55 / 62 / 75 °C | hand feel and battery longevity |
+
+Crossing a tripwire does **not** restore everything at once. It stages down: first to 88% of the preset base, then to 78% if still hot, and only the third stage hands everything back and pauses assertion. Once temperatures have been settled for two minutes, one stage is given back every two minutes.
+
+"Always maximum frequency" and "never above the tripwire" cannot both hold; one-shot restoration would make the module oscillate every minute.
+
+**Why mi_thermald is never killed**: tsens on this SoC is level-triggered. With the daemon stopped, nobody clears the interrupt status, the CPU services the same interrupt thousands of times per second, and the system stalls. The module only ever starts it.
+
+**About emul_temp**: the temperature spoof is a separate four-tier switch, off by default. It blinds *readers*, not the hardware: PMIC junctions, the chassis family and the kernel critical trip never take part. See "Temperature spoof" for what each tier costs.
 
 ## Install
 
@@ -191,6 +191,8 @@ Requires device code `piano` (Xiaomi Pad 8 Pro / SM8750P), Android 16 / HyperOS 
 ## Usage
 
 Use the action button on the module card to switch the module on or off. The WebUI provides fine-grained control.
+
+From a shell:
 
 ```sh
 su -c "sh /data/adb/modules/pianomax/tune.sh status"
@@ -216,25 +218,21 @@ su -c "sh /data/adb/modules/pianomax/profile.sh list"
 <img src="docs/shots/sched-dark.png" width="32%" alt="Scheduler">
 <img src="docs/shots/sys-dark.png" width="32%" alt="System">
 </p>
-<p align="center"><sub>Captured on v1.0.0-beta.2; kept as a layout reference. Values and copy have changed since.</sub></p>
+<p align="center"><sub>WebUI preview (captured on an earlier build)</sub></p>
 
 Open from the KernelSU module card. Five tabs: performance, thermal, memory, scheduler, system.
 
-Seven deliberate design choices:
+The UI is built around three things: state refresh, write feedback and log viewing.
 
-**One call returns the whole state.** The page calls `control.sh snapshot` every few seconds; one process returns 65 values (48 in the light poll). Widgets never issue their own commands.
+The page calls `control.sh snapshot` every few seconds; one process returns 65 values (48 in the light poll), and widgets never issue commands of their own. Steady-state polling uses the light snapshot (462 ms); a full snapshot is pulled only after a parameter changes, to resync the sliders, and takes about 1989 ms.
 
-**Every write is verified.** Values go through `control.sh set`, which whitelists the node, bounds-checks the value and reads it back. Each edited row shows "applied", "clamped" or "not written" — never an unconditional "done".
+Values go through `control.sh set`, which whitelists the node, bounds-checks the value and reads it back. Each edited row then shows "applied", "clamped" or "not written" according to what actually happened. The "?" button next to a row opens a bottom sheet with a short verdict first, then 2-4 points on what the parameter is and what changing it costs, which keeps long text off the main screen and follows the dark theme.
 
-**The verdict comes first.** The status line is not decoration: running at ceiling / approaching tripwire / tripped / daemon stopped / ceiling not in force. A stopped daemon means nothing is holding the frequency — that matters more than any number.
+The status line reports one of five states: running at ceiling / approaching tripwire / tripped / daemon stopped / ceiling not in force. A stopped daemon means nothing is holding the frequency, and that outranks any other reading.
 
-**Two tripwires, two steppers.** Silicon and skin are independent curves with separate bounds.
+Silicon and skin are independent curves with separate steppers and separate bounds.
 
-**Every parameter has a "?" card.** The small button next to a row opens a bottom sheet: the first line is the plain-language verdict, followed by 2-4 points on what the parameter is and what changing it costs. Long explanations stay off the page and follow the dark theme.
-
-**The log view filters and tails live.** A built-in viewer slices by level (all / action / back-off / spoof / fault) and can tail in real time every 2 seconds. The module log carries the whole decision chain: every back-off records the temperatures and the target at that moment, and every WebUI write leaves a `ui-action` audit line.
-
-**Polling cost is measured, not assumed.** Steady-state polling uses the light snapshot (462 ms); a full snapshot is pulled only after a parameter changes, to resync the sliders. That is roughly 77% cheaper per poll than the first implementation (1,989 ms).
+A built-in log viewer filters by level (all / action / back-off / spoof / fault) and can tail in real time every 2 seconds. The module log carries the whole decision chain: every back-off records the temperatures and the target at that moment, and every WebUI write leaves a `ui-action` audit line.
 
 ## GPU latch mechanism (measured)
 
@@ -258,15 +256,15 @@ Measured: `cur_state 6 → 0` pulls `max_gpuclk` from 660 MHz back to 1100 MHz a
 
 **Why does the GPU show 389 MHz?** Idle. The GPU has its own governor and only reaches the cap under load. Check max_gpuclk / max_pwrlevel to verify the cap.
 
-**Another performance module is installed — which one takes effect?** Whichever writes last. See the compatibility section above; running both is not supported.
+**Another performance module is installed: which one takes effect?** Whichever writes last. See the compatibility section above; running both is not supported.
 
 **Preset names changed after updating?** The beta names are now Power save / Balanced / Performance / Extreme. Old state files are recognised automatically; selecting a preset once completes the migration.
 
 ## Known limitations
 
 - msm-adreno-tz re-latches the GPU at any time; the daemon re-releases it every second and readings dip briefly right after a re-latch.
-- On Extreme, sustained full load reaches the 105 °C silicon tripwire within 4-8 seconds — a physical constraint, not a defect; use Performance for sustained loads.
-- Heavy memory stress can still trigger kernel OOM on the 8 GB model. Background processes are reclaimed first; whether the launcher survives is decided by the system's own adj calculation — this module **no longer rewrites** the launcher's or SystemUI's `oom_score_adj` (removed in beta.4, see CHANGELOG).
+- On Extreme, sustained full load reaches the 105 °C silicon tripwire within 4–8 seconds. This follows from the thermal limits of the chassis; use Performance for sustained loads.
+- Heavy memory stress can still trigger kernel OOM on the 8 GB model. Background processes are reclaimed first. This module does not rewrite the launcher's or SystemUI's `oom_score_adj`, so the system's own adj calculation decides whether the launcher survives.
 - Full-speed power draw is significantly higher; use the original charger.
 
 ## Development

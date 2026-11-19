@@ -19,13 +19,11 @@ ensure_thermald() {
     fi
 }
 
-# Historical note: clear_emul used to sweep every zone reading emul_temp.
-# That sweep could never see anything -- emul_temp is a write-only attribute
-# (DEVICE_ATTR_WO, mode 0200, no show handler), so reading it back fails with
-# EACCES by design -- and it cost 78 forks per apply for nothing.  Clearing is
-# apply_temp_spoof's job now, which verifies through zone temperature.
-# Kept as a no-op because pm_apply_all still calls it in sequence and the
-# ordering there documents the apply pipeline.
+# Kept as a no-op so the call order in pm_apply_all still reads as the apply
+# pipeline.  Sweeping zones for a non-zero emul_temp reads nothing back:
+# emul_temp is write-only (DEVICE_ATTR_WO, mode 0200, no show handler), so the
+# sweep only cost forks.  apply_temp_spoof clears the zones and verifies
+# through zone temperature.
 clear_emul() { :; }
 
 # Disabling a compute zone stops the kernel thermal governor from raising its
@@ -61,10 +59,9 @@ disable_compute_zones() {
     fi
     n=0; kept=0
     # The governed set is the family the tripwires read (PM_SILICON_ZONES).
-    # It used to be "every zone that is not protected", which quietly included
-    # ddr, camera, video and the DSP zones that no tripwire watched -- 22
-    # zones with the kernel governor switched off and nothing measuring them.
-    # Deriving both sides from one list makes that class of gap impossible.
+    # Governing "every zone that is not protected" instead would take in ddr,
+    # camera, video and the DSP zones -- zones with the kernel governor off
+    # and no tripwire measuring them.  Both sides derive from one list.
     for z in $PM_SILICON_ZONES; do
         node="/sys/class/thermal/thermal_zone$z/mode"
         [ -e "$node" ] || continue
@@ -236,16 +233,15 @@ pin_bus() {
 # the hardware safety net reads true temperature no matter what this switch
 # does.
 #
-# mi_thermald is PARTIALLY fooled, and the earlier "NOT fooled" note here was
-# wrong.  Measured on-device (thermal.dump, 2026-10-22): its VIRTUAL-SENSOR
-# aggregates cpu_therm with weight 8, cpu_therm is zone 62, and zone 62 is in
-# the spoofable set -- so while the emul layer is up the daemon's virtual
-# sensor reads a constant 25000 contribution.  Its other inputs (quiet_therm
-# and the chassis family) are not spoofable and keep reporting truth, and with
-# a swapped table in charge the daemon enforces OUR ceiling anyway -- but any
-# reasoning that treats the daemon as an untouched independent observer of the
-# compute die is wrong under normal/max.  The guard's own tripwires read the
-# same 57-zone family this function writes, which is why PM_REAL exists.
+# mi_thermald is partially affected.  Its VIRTUAL-SENSOR aggregates cpu_therm
+# with weight 8; cpu_therm is zone 62, which is in the spoofable set, so while
+# the emul layer is up the daemon's virtual sensor receives a constant 25000
+# contribution from that input.  Its remaining inputs (quiet_therm and the
+# chassis family) are not spoofable and keep reporting truth, and with a
+# swapped table in charge the daemon enforces the module's ceiling anyway.
+# Under normal/max it is therefore not an untouched independent observer of
+# the compute die.  The guard's own tripwires read the same 57-zone family
+# this function writes, which is why PM_REAL exists.
 # State lives in .spoof: off/lock/normal/max.  apply runs on every preset
 # switch, boot and re-arm, so the mode self-heals wherever those paths run.
 PM_SPOOF_STATE="$PM_DIR/.spoof"
@@ -280,23 +276,23 @@ apply_temp_spoof() {
     esac
     n=0; c=0
     # The kernel-zones preset hands soft thermal policy back to the stock
-    # governor on purpose (at 1.5 GHz nothing throttles, so silencing it only
-    # removes a safety net).  Emulating 25 C on those zones would fake-cold
-    # the very governor that preset just put back in charge, which silently
-    # undoes the reason the preset exists.  So on that preset every emul tier
-    # degrades to lock; only the framework override applies, and it stops at
-    # PowerManager/AThermal without ever reaching a kernel governor.
+    # governor (at 1.5 GHz nothing throttles, so silencing it only removes a
+    # safety net).  Emulating 25 C on those zones would fake-cold the very
+    # governor that preset just restored, undoing the reason it exists.  Every
+    # emul tier therefore degrades to lock there: only the framework override
+    # applies, and it stops at PowerManager/AThermal without reaching a kernel
+    # governor.
     if [ "$TIER" != "off" ] && [ "$TIER" != "lock" ] && [ "$(pm_zones_kernel)" = "yes" ]; then
         cmd thermalservice override-status 0 >/dev/null 2>&1
         pm_logn "spoof: tier=$TIER kernel-governed preset, degraded to framework lock only"
         TIER=lock
     fi
     # Clear whatever a wider tier left behind before deciding what this tier
-    # writes.  Downgrading max -> normal used to leave the 20 zones only max
-    # covers still reading 25 C (48 - 28 = 20), and max -> lock left all 48 -- so "lock" and
-    # "off" would report themselves while the device still behaved like max.
-    # The cleanup is keyed on the target list, so switching between emul tiers
-    # clears exactly the difference and nothing else.
+    # writes.  Without it a downgrade max -> normal leaves the 20 zones only max
+    # covers still reading 25 C (48 - 28 = 20), and max -> lock leaves all 48:
+    # "lock" and "off" report themselves while the device still behaves like
+    # max.  The cleanup is keyed on the target list, so switching tiers clears
+    # exactly the difference and nothing else.
     if [ "$TIER" = "lock" ] || [ "$TIER" = "off" ]; then
         _keep=""
     elif [ "$TIER" = "normal" ]; then
@@ -343,10 +339,9 @@ apply_temp_spoof() {
         LIST=$(cat "$PM_DIR/.tz_spoofable" 2>/dev/null)
         LISTFILE="$PM_DIR/.tz_spoofable"
     fi
-    # An empty list turns the loop below into a silent no-op -- the module
-    # would report the switch as on while writing nothing, which is exactly
-    # the "looks correct, does nothing" failure this project has hit three
-    # times.  Rebuild once, and if it is still empty say so out loud.
+    # An empty list turns the loop below into a silent no-op: the switch
+    # reports on while writing nothing.  Rebuild once, and if it is still
+    # empty, fail loudly instead of reporting success.
     if [ -z "$LIST" ]; then
         rm -f "$PM_DIR/.tz_types" "$PM_DIR/.tz_spoofable" "$PM_DIR/.tz_spoofable_core"
         pm_build_zone_cache
@@ -390,12 +385,11 @@ apply_temp_spoof() {
         # framework at NONE forever, which is the one direction of this
         # switch that must never stick.
         cmd thermalservice reset >/dev/null 2>&1
-        # c=0 is a NORMAL outcome here: a wider tier already cleared every
-        # zone, or nothing was spoofed.  The bare A && B form made the
-        # function return 1 on exactly that success case, control.sh turned
-        # it into err:spoof_apply, and the UI toasted "application failed"
-        # while the kernel had just been cleaned perfectly (3/3 reproduced
-        # 2026-10-23).  Always succeed: off is only ever a cleanup.
+        # c=0 is a normal outcome here: a wider tier already cleared every
+        # zone, or nothing was spoofed.  The bare A && B form returned 1 on
+        # exactly that success case, which control.sh surfaced as
+        # err:spoof_apply and the UI rendered as "application failed" even
+        # though the kernel state was clean.  Always succeed: off is a cleanup.
         if [ "$c" -gt 0 ]; then
             pm_logn "spoof: off, cleared zones=$c"
         fi
@@ -404,10 +398,10 @@ apply_temp_spoof() {
 }
 
 tune_mem() {
-    # 20480 sits between the vendor 11584 and the old 40960: the old value
-    # raised every zone watermark 3.5x, which pulled MemAvailable under the
-    # lmkd lines early and got the launcher killed on memory spikes.  Twice
-    # vendor keeps headroom for bursts without starving the reclaim pool.
+    # 20480 is roughly twice the vendor 11584.  Anything near 3.5x raises every
+    # zone watermark until MemAvailable sits under the lmkd lines early, and the
+    # launcher dies on memory spikes.  Twice vendor keeps headroom for bursts
+    # without starving the reclaim pool.
     pm_wr /proc/sys/vm/min_free_kbytes 20480
     # 500 is the vendor value; 300 made compaction fire on every small
     # fragmentation event.  Proactiveness 8 keeps background compaction on
@@ -478,15 +472,14 @@ tune_display() {
 pm_apply_all() {
     PM_FAILS=0
     # Rebuild the working files from the preset the UI shows before anything
-    # reads them.  restore.sh deletes .target as part of its factory cleanup
-    # and pm_base0/6 fall back to the extreme values when it is gone, so every
-    # "restore then apply" cycle -- the module card button, the WebUI toggle,
-    # tune.sh apply, the guard's re-arm -- used to come back at the extreme
-    # ceiling no matter which preset the label named.
+    # reads them.  restore.sh deletes .target as part of its factory cleanup,
+    # and pm_base0/6 fall back to the extreme values when it is gone -- so
+    # every "restore then apply" cycle (the module card button, the WebUI
+    # toggle, tune.sh apply, the guard's re-arm) comes back at the extreme
+    # ceiling unless the files are rebuilt first.
     #
-    # Doing it here rather than at each entry point is the whole point: there
-    # were three callers, the first fix covered one of them, and the card
-    # button silently kept the bug.
+    # Here rather than at each entry point: the rebuild belongs to the apply
+    # path itself, so a caller cannot forget it.
     pm_state_rebuild
     ensure_thermald
     clear_emul

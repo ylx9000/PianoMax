@@ -29,9 +29,9 @@ fi
 if [ "$tp" = "0" ]; then
     echo 0 > "$GPU/max_pwrlevel" 2>/dev/null
     # Deliberately NOT min_pwrlevel=0: pinning the idle floor to the top rung
-    # holds the GPU at 1100 MHz until service.sh runs -- minutes, not the
-    # "two seconds" the old comment claimed.  max_pwrlevel=0 only opens the
-    # ceiling; the devfreq governor still idles the GPU at its own floor.
+    # would hold the GPU at 1100 MHz for the minutes until service.sh runs.
+    # max_pwrlevel=0 only opens the ceiling; the devfreq governor still idles
+    # the GPU at its own floor.
     pm_logn "gpu_ladder: opened (all rungs exposed)"
 else
     pm_logd "gpu_prewarm: tp already latched at $tp"

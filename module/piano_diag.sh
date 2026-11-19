@@ -36,7 +36,7 @@ MYSELF=$
 for c in $(pgrep -f "$PM_DIR/guard.sh" 2>/dev/null); do
     # Exclude our own process tree: transient pipeline children (the diag
     # shell spawning this very probe) inherit the pattern in their cmdline
-    # and were counted as a second guard (F3, hit live 2026-10-23).
+    # and would otherwise be counted as a second guard (F3).
     ppid=$(awk '/^PPid:/{print $2}' "/proc/$c/status" 2>/dev/null)
     case " $MYSELF $c " in *" $ppid "*) continue ;; esac
     tr '\000' ' ' < "/proc/$c/cmdline" 2>/dev/null | grep -q "^sh $PM_DIR/guard.sh" && GPIDS="$GPIDS $c"
@@ -88,11 +88,10 @@ if [ -f "$PM_DIR/.thermal_mode" ]; then
     if [ -f /data/vendor/thermal/decrypt.txt ]; then
         SZ=$(stat -c %s /data/vendor/thermal/decrypt.txt 2>/dev/null)
         say_ok "decrypt.txt live, $SZ bytes"
-        # The stamp is what the module believes; this block reports what the
-        # guard is actually doing with it.  They disagree in two real states
-        # -- daemon never re-read, or no install-time reference -- and in
-        # both the guard re-pins.  Calling that "table in charge" would be
-        # the same half-truth the old one-line check was.
+        # The stamp records what the module believes; this block reports what
+        # the guard is actually doing with it.  The two disagree in two real
+        # states -- daemon never re-read, or no install-time reference -- and
+        # in both the guard re-pins, so neither counts as "table in charge".
         if [ -f "$PM_DIR/.thermal_ts" ]; then
             TS_M=$(stat -c %Y "$PM_DIR/.thermal_ts" 2>/dev/null)
             DT_M=$(stat -c %Y /data/vendor/thermal/decrypt.txt 2>/dev/null)

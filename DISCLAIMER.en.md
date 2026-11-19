@@ -8,9 +8,9 @@ PianoMax is a frequency scaling module for KernelSU on the Xiaomi Pad 8 Pro (cod
 
 It raises the CPU, GPU, DDR and LLCC ceilings to the top bins published in the SoC specification, writes them through the `thermal_message/cpu_limits` command channel, and holds them with a daemon that loops every second. It also switches the compute thermal zones to `disabled` so the kernel stops throttling on those readings.
 
-It does **not** stop `mi_thermald` and does **not** touch the battery, charger, BCL current limit or PMIC junction protection paths.
+It does not stop `mi_thermald` and does not touch the battery, charger, BCL current limit or PMIC junction protection paths.
 
-Temperature spoofing is a **separate switch that ships off**, with four tiers (off / lock only / normal 28 zones / max 48 zones). The higher the tier, the more sensors stop reporting the truth: at Max the module's own chip tripwire is left with only the eight PMIC junctions plus the battery and has effectively lost its input, while Normal keeps 29 real readings and stays armed. Battery, charger, BCL, PMIC and chassis zones remain real on every tier, and hardware over-temperature protection stays armed. The full boundary, tier by tier, is in the README's "Temperature spoof" section — please read it before switching anything on.
+Temperature spoofing is a separate switch that ships off, with four tiers (off / lock only / normal 28 zones / max 48 zones). The higher the tier, the more sensors stop reporting the truth: at Max the module's own chip tripwire is left with only the eight PMIC junctions plus the battery and has effectively lost its input, while Normal keeps 29 real readings and stays armed. Battery, charger, BCL, PMIC and chassis zones remain real on every tier, and hardware over-temperature protection stays armed. The full boundary, tier by tier, is in the README's "Temperature spoof" section. Read it before switching anything on.
 
 ## What that means
 
@@ -18,17 +18,19 @@ By default the system throttles as temperature rises, keeping junction temperatu
 
 Three direct consequences:
 
-1. **Surface temperatures will be noticeably higher.** Under sustained load the frame and back can become uncomfortable to hold. That is the design goal, not a fault.
+1. **Surface temperatures will be noticeably higher.** Under sustained load the frame and back can become uncomfortable to hold.
 2. **Power draw rises significantly.** Battery life shrinks, and a non-stock charger may not keep up, which shows up as repeated charge interruptions or stutter.
 3. **There is a hardware risk in extreme cases.** Long-term operation at high temperature and power accelerates battery ageing and can, in principle, permanently damage the SoC or its power delivery.
 
 The module ships with temperature tripwires (90-105 °C depending on the preset): when the hottest sensor crosses one, the daemon stages down and eventually restores every parameter and pauses. That is a **software** protection. It assumes the system is still healthy enough to run. If the system hangs, the kernel panics, or the daemon is killed, that protection does not apply.
 
-## What is explicitly not promised
+## What is not covered
 
-- **Stability.** This is a beta, verified on one device and one system build (HyperOS 3 / OS3.0.309.0.WPYCNXM).
-- **Data safety.** The module changes system-level scheduler and memory parameters. A crash in extreme cases can lose unsaved data.
-- **Reversibility.** A full factory restore is provided, but restoring parameters does not repair hardware that has already been damaged by heat.
+**Stability.** This is a beta, verified on one device and one system build (HyperOS 3 / OS3.0.309.0.WPYCNXM). Other system builds, other devices and other kernels may behave unexpectedly.
+
+**Data and system state.** The module changes system-level scheduler and memory parameters. A crash under these settings can lose unsaved data, and a power cut can leave the module's own state files out of step with the device.
+
+**Hardware already damaged.** A full factory restore is provided (`tune.sh restore` and the uninstall script), but a restore only puts parameters back. It does not repair hardware that heat has already damaged.
 
 ## Situations this is not recommended for
 

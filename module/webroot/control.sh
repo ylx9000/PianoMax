@@ -116,11 +116,11 @@ cmd_set() {
             # the guard then re-writes cpu_limits on every tick forever.
             #
             # Exact match first, nearest-rung only as fallback.  Under thermal
-            # pressure the kernel shrinks scaling_available_frequencies, and
-            # the old unconditional nearest-rung snap then MOVED the request:
-            # a slider push of 2985600 snapped to 2918400 (the nearest rung
-            # the shrunken ladder still listed) and the .target file silently
-            # recorded a value one rung below what the slider showed.
+            # pressure the kernel shrinks scaling_available_frequencies, and an
+            # unconditional nearest-rung snap moves the request: a slider push
+            # of 2985600 snaps to 2918400 (the nearest rung the shrunken ladder
+            # still lists) and .target records a value one rung below what the
+            # slider shows.
             if [ "$k" = "cpu_max0" ]; then
                 [ "$v" -ge 556800 ] && [ "$v" -le 3532800 ] || { echo "err:out_of_range"; exit 2; }
                 case " $(pm_ladder "$CFG/policy0" 2>/dev/null) " in
@@ -212,9 +212,9 @@ cmd_set() {
             settings put secure miui_refresh_rate "$v" 2>/dev/null
             got=$(settings get secure user_refresh_rate 2>/dev/null)
             [ "$got" = "$v" ] || { echo "err:readback_$got"; exit 3; }
-            # Seed the .refresh_cache status.sh reads in the polling path:
-            # the cache was documented but never written, so the UI showed
-            # the stale value forever after a successful set (F3, 2026-10-23).
+            # Seed the .refresh_cache status.sh reads in the polling path.
+            # Without it the UI keeps showing the pre-set value after a
+            # successful write (F3).
             echo "$v" > "$PM_DIR/.refresh_cache" 2>/dev/null
             echo "ok:$v"; exit 0 ;;
         zones)
@@ -303,8 +303,8 @@ cmd_set() {
         back=$(cat "$node" 2>/dev/null)
         # uclamp nodes answer "40.00" when written "40": strip a trailing
         # all-zero decimal before comparing, or every uclamp set reports
-        # warn:clamped although the kernel took the value (2026-10-22).
-        # A real clamp (40 -> 39.50) still differs after this.
+        # warn:clamped although the kernel accepted the value.  A real clamp
+        # (40 -> 39.50) still differs after this.
         set -- $back; back=${1%%.*}
         set -- $v;    v=${1%%.*}
         if [ "$back" = "$v" ]; then echo "ok:$back"; else echo "warn:clamped:$back"; fi
@@ -355,11 +355,10 @@ case "$1" in
         # it, and passing it through verbatim made the verdict chip report an
         # error after every successful re-assert.
         #
-        # One exception must not be laundered into success: with the module
-        # switched off, tune.sh apply replies "switched off" and does nothing.
-        # Wrapping that as ok: told the caller the parameters were re-applied
-        # when they were still factory.  Err: prefix + the existing
-        # describeErr mapping.
+        # One reply must not be mapped to success: with the module switched
+        # off, tune.sh apply replies "switched off" and does nothing.  Tagging
+        # that as ok: told the caller the parameters were re-applied when they
+        # were still factory.  Err: prefix plus the describeErr mapping.
         r=$(sh "$MODDIR/tune.sh" apply 2>&1)
         case "$r" in
             "switched off") echo "err:switched_off" ;;

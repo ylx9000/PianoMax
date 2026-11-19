@@ -134,18 +134,18 @@ case "$SPOOF_RAW" in
     *)      SPOOF_TIER=off ;;
 esac
 # Mirror apply_temp_spoof's kernel-preset degrade: on the powersave preset
-# every emul tier actually runs as framework-lock-only (zones25 stays 0,
-# measured 2026-10-23), so the badge/counts must report lock -- otherwise
-# the UI advertises normal/max while the engine behaves as lock and the
-# user reads the mismatch as "the spoof is broken".  .spoof keeps the raw
-# user intent for the engine; this display tier reports live behaviour.
+# every emul tier runs as framework-lock-only (zones25 stays 0), so the
+# badge and counts must report lock.  Otherwise the UI advertises normal/max
+# while the engine behaves as lock, and the mismatch reads as a broken
+# switch.  .spoof keeps the raw user intent for the engine; this display tier
+# reports live behaviour.
 if [ "$SPOOF_TIER" = "normal" ] || [ "$SPOOF_TIER" = "max" ]; then
     [ "$(pm_zones_kernel)" = "yes" ] && SPOOF_TIER=lock
 fi
 # The tier's zone list has to be known before the walk so the count rides along
-# with the reads the walk already performs.  It used to be a second full pass
-# over the same zones (~0.3 s per call) that could only ever agree with the
-# first one.  lock has no list at all -- it touches no sensor.
+# with the reads the walk already performs; a second full pass over the same
+# zones costs ~0.3 s per call and can only ever agree with the first one.
+# lock has no list at all -- it touches no sensor.
 SPOOFABLE=" "
 if [ "$SPOOF_TIER" = "max" ] || [ "$SPOOF_TIER" = "normal" ]; then
     pm_zone_cache_ok || pm_build_zone_cache
@@ -175,8 +175,8 @@ ZTOT=0; ZD=0; SPOOF_N=0
 V_CPU=0; V_GPU=0
 # One walk over every zone yields five answers at once: total count, the
 # chassis maximum, the hottest non-emulated reading, how many zones the
-# module switched off, and how many are currently emulated.  Each of those
-# used to be its own loop of forks.  Reads go through the builtin -- this
+# module switched off, and how many are currently emulated.  A separate loop
+# per answer multiplies the forks.  Reads go through the builtin -- this
 # script runs every three seconds behind an open WebUI, so its cost is
 # literally the UI's frame budget.
 for z in /sys/class/thermal/thermal_zone*; do
@@ -266,9 +266,9 @@ kv trip "$TRIPC $TRIPS"
 # only.  Both modes read the cache; the dumpsys fallback covers the one case
 # the guard cannot seed -- a status call on a box whose guard has not started
 # yet this boot (no cache file) -- plus the cache being wiped by a restore.
-# WebUI polling used to pay the full dumpsys every 3 s (cmd_snapshot runs
-# full mode), which made the page's own refresh the heaviest thing it was
-# observing.
+# Without the cache the WebUI pays a full dumpsys every 3 s (cmd_snapshot
+# runs full mode), which makes the page's own refresh the heaviest thing it
+# observes.
 OV_CACHE=""
 IFS= read -r OV_CACHE 2>/dev/null < "$PM_DIR/.override"
 if [ -n "$OV_CACHE" ]; then
@@ -320,8 +320,7 @@ case $_b6 in ''|*[!0-9]*) _b6=4320000 ;; esac
 kv p_target       "$_b0 $_b6"
 _st=""; IFS= read -r _st 2>/dev/null < "$PM_STAGE"
 kv p_stage        "${_st:--}"
-# ---- dev diagnostics (she asked for richer observability, 2026-10-22):
-# guard state files the page never surfaced before.
+# ---- dev diagnostics: guard state files not otherwise surfaced in the UI.
 _t=""
 IFS= read -r _t 2>/dev/null < "$PM_DIR/.gpu";      kv p_gpu "${_t:--}"
 _t=""; IFS= read -r _t 2>/dev/null < "$PM_DIR/.gov";  kv d_gov "${_t:--}"

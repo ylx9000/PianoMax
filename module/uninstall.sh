@@ -24,15 +24,14 @@ done
 # restore.sh would run the full thermal revert including the daemon-reload
 # verify loop; uninstall only needs the vendor bytes back in place.
 #
-# This used to copy the snapshot straight across.  That path bypassed the
-# contamination checks pm_thermal_revert gained -- and uninstall is the worst
-# possible place for a poisoned snapshot to win, because the module tree is
-# about to be deleted and there is no later chance to fix it.  A device that
-# last ran a pre-fix build still carries a .thermal_orig holding our own
-# extreme table; copying it back would end the uninstall with the message
-# "factory values restored" and our table in charge.  Reuse the checked path
-# with no argument (pm_thermal_revert takes none) so the no-block rule survives (the revert's own comment
-# explains why 2 is enough for the delete-right-after case).
+# Copying the snapshot straight across would bypass the contamination checks
+# in pm_thermal_revert, and uninstall is the worst place for a poisoned
+# snapshot to win: the module tree is about to be deleted, so there is no
+# later chance to fix it.  A device whose .thermal_orig captured our own
+# extreme table would end the uninstall reporting "factory values restored"
+# with our table in charge.  Reuse the checked path with no argument
+# (pm_thermal_revert takes none) so the no-block rule survives; the revert's
+# own comment explains why 2 is enough for the delete-right-after case.
 #
 # The immutable bit is cleared unconditionally, before that guard.  A KSU
 # update replaces the module directory, which loses .thermal_captured and

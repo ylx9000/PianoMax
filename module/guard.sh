@@ -3,15 +3,13 @@
 # Copyright (C) 2026 ylx9000
 # Licensed under the PolyForm Noncommercial License 1.0.0.
 
-# Two jobs, both of which decide whether the module works at all:
-#   1. hold the ceiling.  mi_thermald is a userspace daemon that rewrites
-#      cpu_limits every couple of seconds; disabling thermal zones does not
-#      reach it.  Without a re-pin loop in this file the ceiling decays to
-#      ~1.9 GHz within seconds and every number shown in the UI is fiction.
-#   2. stay alive.  A one-shot daemon that exits on the first trip leaves the
+# Two responsibilities:
+#   1. Hold the ceiling.  mi_thermald rewrites cpu_limits every couple of
+#      seconds; disabling thermal zones does not reach it.  Without the
+#      re-pin loop below the ceiling decays to ~1.9 GHz within seconds.
+#   2. Stay resident.  A daemon that exits on the first trip leaves the
 #      module half applied until the next reboot, and every reader (status,
-#      WebUI) then shows a stale snapshot.  This one restores, waits, and
-#      resumes by itself.
+#      WebUI) renders a stale snapshot.  This one restores, waits, resumes.
 
 . "$(dirname "$0")/lib/common.sh"
 PM_COMP=guard   # log v2: RFC5424 APP-NAME equivalent, one per entry script
@@ -39,7 +37,7 @@ held_reset() {
 # ---- single instance ----
 # mkdir is atomic; two concurrent starters cannot both win the lock.  A stale
 # lock (crash between mkdir and the trap) is broken by probing the pid left
-# inside it: if that process is not a running guard, the lock is junk.
+# inside it: if that process is not a running guard, the lock is stale.
 if ! mkdir "$PM_DIR/.guard_lock" 2>/dev/null; then
     old=$(cat "$PM_DIR/.guard_lock/pid" 2>/dev/null)
     c_old=""
@@ -56,7 +54,7 @@ if ! mkdir "$PM_DIR/.guard_lock" 2>/dev/null; then
         # Lock exists but carries no pid yet: a starter between mkdir and the
         # pid write.  Breaking the lock now would orphan that starter and end
         # with two guards.  Wait once and re-read; a genuinely dead starter
-        # still leaves the pid empty, and only then is the lock junk.
+        # still leaves the pid empty, and only then is the lock stale.
         sleep 2
         old=$(cat "$PM_DIR/.guard_lock/pid" 2>/dev/null)
         # argv-head match, not substring: an editor with guard.sh open in a
@@ -105,9 +103,9 @@ trap cleanup EXIT
 # still running the old trap code that swallows TERM.
 for p in /proc/[0-9]*; do
     [ "${p##*/}" = "$$" ] && continue
-    # A dying process can wedge a plain read on /proc/<pid>/cmdline forever
-            # (procfs race, hit live 2026-10-23: guard stuck 8 min in pipe_read).
-            # timeout 1 caps the worst case; a live process reads in microseconds.
+    # A dying process can wedge a plain read on /proc/<pid>/cmdline
+            # indefinitely (observed: 8 minutes blocked in pipe_read).  timeout 1
+            # caps the worst case; a live process reads in microseconds.
             c=$(timeout 1 tr '\000' ' ' < "$p/cmdline" 2>/dev/null) || continue
     case "$c" in
         sh*$PM_DIR/guard.sh*|*"sh "$PM_DIR/guard.sh*|$PM_DIR/guard.sh*) kill "${p##*/}" 2>/dev/null ;;
@@ -116,9 +114,9 @@ done
 sleep 1
 for p in /proc/[0-9]*; do
     [ "${p##*/}" = "$$" ] && continue
-    # A dying process can wedge a plain read on /proc/<pid>/cmdline forever
-            # (procfs race, hit live 2026-10-23: guard stuck 8 min in pipe_read).
-            # timeout 1 caps the worst case; a live process reads in microseconds.
+    # A dying process can wedge a plain read on /proc/<pid>/cmdline
+            # indefinitely (observed: 8 minutes blocked in pipe_read).  timeout 1
+            # caps the worst case; a live process reads in microseconds.
             c=$(timeout 1 tr '\000' ' ' < "$p/cmdline" 2>/dev/null) || continue
     case "$c" in
         *$PM_DIR/guard.sh*)
@@ -163,8 +161,8 @@ sleep 3
 # Seed the snapshot before the first tick.  The WebUI polls every three
 # seconds, and the gap between "apply finished" and "first tick wrote .state"
 # is exactly the window in which the page would render a blank hold field.
-# Seeded AFTER apply on purpose: seeding before it would publish the restored
-# factory values for a second, which is worse than blank.
+# Seeded after apply, never before: an earlier seed publishes the restored
+# factory values for the gap before the first tick, which is worse than blank.
 _s0=""; IFS= read -r _s0 < "$CFG/policy0/scaling_max_freq" 2>/dev/null
 _s6=""; IFS= read -r _s6 < "$CFG/policy6/scaling_max_freq" 2>/dev/null
 _sg=""; IFS= read -r _sg < "$CFG/policy0/scaling_governor" 2>/dev/null
@@ -220,9 +218,8 @@ SPOOF_MODE=$(cat "$PM_DIR/.spoof" 2>/dev/null)
 
 while true; do
     # Tick counter advances at the top of the body so every throttled block
-    # below sees the same beat.  It used to advance after the snapshot write,
-    # which left the periodic blocks below one tick out of phase with each
-    # other; two jobs meant to interleave silently drifted apart.
+    # below sees the same beat.  Advancing it further down puts the periodic
+    # blocks one tick out of phase and lets jobs that should interleave drift.
     STREAK=$((STREAK + 1))
 
     # ---- shutdown paths -------------------------------------------------
@@ -318,8 +315,8 @@ while true; do
     TRIPC=$1
     TRIPS=$2
     # The switch can be flipped from the WebUI at any moment, so it is read
-    # every tick rather than only on a preset change (the old placement meant
-    # toggling it did nothing until the next preset switch).  Two builtin
+    # every tick, not only on a preset change; reading it inside the preset
+    # path means toggling it does nothing until the next switch.  Two builtin
     # reads, no fork.
     SPOOF_MODE=""; IFS= read -r SPOOF_MODE < "$PM_DIR/.spoof" 2>/dev/null
     ZONES_KERNEL=""; IFS= read -r ZONES_KERNEL < "$PM_ZONES" 2>/dev/null
@@ -761,10 +758,10 @@ while true; do
     fi
     if [ $((STREAK % 60)) -eq 0 ]; then
         # 32 KB threshold: a live tick is ~200 B/30 s, so the cap only bites
-        # after hours of steady state -- but trip storms can write KBs per
-        # second, and waiting ten minutes (the old cadence) let the file hit
-        # 129 KB in the field. Check every minute; wc -c on a 32 KB file
-        # costs one fork and is nothing next to the storm it bounds.
+        # after hours of steady state -- but trip storms write KBs per second,
+        # and a ten-minute cadence lets the file reach 129 KB in the field.
+        # Check every minute; wc -c on a 32 KB file costs one fork and is
+        # nothing next to the storm it bounds.
         pm_log_trim
     fi
 

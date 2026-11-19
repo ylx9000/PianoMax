@@ -160,12 +160,11 @@ pm_export_run() {
         echo "export: zip container failed validation; the kv text above is the export"
         return 3
     fi
-    # Retention: every export leaves a kv + a zip, and nothing ever removed
-    # them -- the device had accumulated ten pairs before this existed.  Keep
-    # the six newest zips (their matching .txt goes with each); ls -t walks
-    # newest first so the cap is an age bound that never needs find -mtime.
-    # Failures here are cosmetic -- an old export staying one more round
-    # harms nothing -- so the sweep is silent.
+    # Retention: every export leaves a kv + a zip and nothing removed them.
+    # Keep the six newest zips with their matching .txt; ls -t walks newest
+    # first, so the cap is an age bound that never needs find -mtime.  A
+    # failed sweep is harmless -- an old export surviving one more round
+    # costs nothing -- so this runs silently.
     _n=0
     for f in $(ls -t "$out"/pianomax-config-*.zip 2>/dev/null); do
         _n=$((_n + 1))

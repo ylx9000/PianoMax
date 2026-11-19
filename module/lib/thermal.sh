@@ -38,13 +38,11 @@ T_STAMP="$PM_DIR/.thermal_mode"
 
 # Is this file byte-identical to one of the module's own preset tables?
 #
-# The four call sites below used to answer with `grep -q "$h" module/thermal/*/*.conf`,
-# which greps the hash STRING against the table's CONTENT.  A hex digest is not
-# a substring of the ciphertext it describes, so the answer was always "no".
-# Every one of those checks existed to stop the module mistaking its own table
-# for a vendor table, and every one of them was dead: contaminated snapshots
-# were captured, and "revert" would faithfully restore our own policy.  Compare
-# digests on both sides instead -- one md5sum per candidate, same cost.
+# Grepping the hash STRING against the table's CONTENT never matches: a hex
+# digest is not a substring of the ciphertext it describes.  The checks that
+# rely on this all exist to stop the module mistaking its own table for a
+# vendor table, so the comparison has to digest both sides -- one md5sum per
+# candidate, no extra cost.
 pm_is_own_table() {
     _pio=$1
     [ -f "$_pio" ] || return 1
@@ -70,10 +68,9 @@ pm_stat_sig() {
 # whatever sits there may already be ours.  Capturing from the override
 # directory alone is therefore circular -- on any boot after a swap it would
 # snapshot our own table and call it the vendor's, and revert would then
-# faithfully restore the thing it was supposed to undo.  That is exactly what
-# happened before this comment existed: .thermal_orig held a copy of the
-# extreme table (md5 76562364...) while the real vendor table (/odm/etc,
-# 1e55b6a3...) was never touched.
+# faithfully restore the thing it was supposed to undo -- an observed failure
+# mode: .thermal_orig held a copy of the extreme table (md5 76562364...) while
+# the real vendor table (/odm/etc, 1e55b6a3...) was never touched.
 #
 # Order of preference, per file:
 #   1. /odm/etc/<name>        -- the shipped table, immutable and always real
@@ -82,8 +79,8 @@ pm_stat_sig() {
 T_VENDOR=/odm/etc
 
 # One-time snapshot of every table the vendor shipped, encrypted and all.
-# Without this the revert path is fiction, so the swap refuses to run until
-# it has a capture from this boot.
+# The revert path depends on it, so the swap refuses to run until it has a
+# capture from this boot.
 pm_thermal_capture() {
     [ -d "$T_DIR" ] || { pm_logw "table_swap: no config dir $T_DIR, unavailable"; return 1; }
     # A marker without a populated snapshot is worse than no marker: the
@@ -169,13 +166,12 @@ pm_thermal_swap() {
         chown root:system "$T_DIR/$(basename "$f")" 2>/dev/null
     done
     if [ "$cp_ok" != "1" ]; then
-        # The old table is already half-overwritten at this point, so neither
-        # "previous table" nor "new table" describes what is in T_DIR now.
-        # Wipe the stamp as well: leaving it behind left the guard's table
-        # gate reading a mode and an install time that belonged to a table
-        # that is no longer whole, and it would hand the ceiling to a daemon
-        # enforcing a half-copied policy.  No stamp means guard re-pins,
-        # which is the safe state.
+        # T_DIR now holds a half-overwritten file, so neither "previous table"
+        # nor "new table" describes it.  The stamp goes with it: a stamp left
+        # behind makes the guard's table gate read a mode and an install time
+        # for a table that is no longer whole, and hand the ceiling to a daemon
+        # enforcing a half-copied policy.  No stamp means guard re-pins, which
+        # is the safe state.
         rm -f "$T_STAMP" "$PM_DIR/.thermal_ts"
         pm_loge "swap: copy FAILED for $mode, stamp cleared (guard keeps re-pinning)"
         return 1
@@ -195,12 +191,11 @@ pm_thermal_swap() {
     # BEFORE the stamp lands) and disqualify healthy tables.
     date +%s > "$PM_DIR/.thermal_ts" 2>/dev/null
     setprop ctl.restart mi_thermald 2>/dev/null || { stop mi_thermald 2>/dev/null; start mi_thermald 2>/dev/null; }
-    # The stamp goes down only after the daemon proves it re-read: a stamp
-    # written earlier turned the guard's table gate into a lie whenever the
-    # restart was swallowed or the load rejected, and the ceiling then lost
-    # its keeper until the next preset switch.  On a failed verify the stamp
-    # stays off and the guard keeps re-pinning -- the old behaviour, never
-    # the worse one.
+    # The stamp goes down only after the daemon proves it re-read.  Written
+    # earlier it invalidates the guard's table gate whenever the restart is
+    # swallowed or the load rejected, and the ceiling loses its keeper until
+    # the next preset switch.  On a failed verify the stamp stays off and the
+    # guard keeps re-pinning.
     if pm_thermal_verify "$mode" "$t_before"; then
         echo "$mode" > "$T_STAMP"
     else
@@ -208,19 +203,19 @@ pm_thermal_swap() {
         pm_loge "swap: verify FAILED, stamp withheld (guard keeps re-pinning)"
     fi
     # Pin the override directory immutable: joyose/powerkeeper rewrite T_DIR
-    # "whenever it feels like it" (its own comment in this file), and a cloud
-    # overwrite here silently reverted the preset table while the stamp kept
-    # claiming otherwise.  Revert and uninstall already clear the bit first.
+    # asynchronously, and a cloud overwrite here silently reverts the preset
+    # table while the stamp keeps claiming otherwise.  Revert and uninstall
+    # clear the bit first.
     chattr -R +i "$T_DIR" 2>/dev/null
 }
 
 # Put the vendor's own tables back.  Used by restore.sh and uninstall.
 pm_thermal_revert() {
     # Unconditional unlock, before anything else.  The early returns below
-    # (missing snapshot) previously skipped it, which mattered after a module
-    # update that lost .thermal_captured while the preset table still carried
-    # +i: vendor bytes and cloud control alike then bounced off the immutable
-    # directory with nothing left in the module tree able to clear it.
+    # would otherwise skip it, and after a module update that lost
+    # .thermal_captured while the preset table still carried +i, vendor bytes
+    # and cloud control alike bounce off the immutable directory with nothing
+    # left in the module tree able to clear it.
     chattr -R -i "$T_DIR" 2>/dev/null
     [ -f "$PM_DIR/.thermal_captured" ] || return 0
     # The snapshot is the only proof of what "vendor" means.  A capture with
@@ -309,26 +304,26 @@ pm_thermal_revert() {
 # cannot name our preset (the table is sensor data, not labels), so the
 # checkable claim is "the daemon re-read something after our restart" --
 # plus the stamp recording what we believe it read.  If the daemon ignored
-# our table anyway, the guard's re-pin loop keeps the old behavior: a
-# failed swap degrades to today's mechanics, never to something worse.
+# our table anyway, the guard's re-pin loop still holds the ceiling: a failed
+# swap degrades to re-pinning every tick, never to something worse.
 pm_thermal_verify() {
     mode=$1; before=$2; polls=${3:-10}
-    # Poll in 0.25 s steps instead of sleeping a second per round: the
-    # daemon usually rewrites decrypt.txt within ~1-2 s of the restart, so
-    # the common case returns in a quarter of the old wall time and the
-    # worst case is unchanged (polls * 0.25 s).  read -t is the portable
-    # sub-second sleep on mksh; verified on this box (rc=1 on timeout).
+    # Poll in 0.25 s steps rather than sleeping a second per round: the daemon
+    # usually rewrites decrypt.txt within ~1-2 s of the restart, so the common
+    # case returns four times sooner and the worst case is unchanged
+    # (polls * 0.25 s).  read -t is the portable sub-second sleep on mksh;
+    # verified on this box (rc=1 on timeout).
     # No decrypt.txt at all: the ROM either moved it or never exposes it.
     # There is nothing to watch, so the swap is accepted on faith and the
     # guard remains the safety net.
     [ -f "$T_ROOT/decrypt.txt" ] || { pm_logd "verify: no decrypt.txt, swap accepted unverified"; return 0; }
     i=0
     while [ "$i" -lt $((polls * 4)) ]; do
-        # mksh read -t needs an fd that can BLOCK.  /dev/null is always EOF
-        # (rc=0, instantly) so the whole loop burned through 40 polls in ~3 ms
-        # and never observed a reload that lands 1-2 s after the restart --
-        # every "no reload detected" was an artifact (FIFO-verified
-        # 2026-10-22).  sleep 0.25 is a real sub-second wait on toybox.
+        # mksh read -t needs an fd that can block.  /dev/null is always EOF
+        # (rc=0, instantly), so the loop burns through 40 polls in ~3 ms and
+        # never observes a reload that lands 1-2 s after the restart -- every
+        # "no reload detected" would be an artifact.  sleep 0.25 is a real
+        # sub-second wait on toybox.
         sleep 0.25
         after=$(pm_stat_sig "$T_ROOT/decrypt.txt")
         if [ -n "$after" ] && [ "$after" != "$before" ]; then
@@ -341,7 +336,7 @@ pm_thermal_verify() {
     return 1
 }
 
-# Deployment note (device-verified 2026-10-21): the file copied into
+# Deployment note (device-verified): the file copied into
 # T_DIR must carry its scenario name (thermal-normal.conf), not the map name.
 # A stray thermal-map.conf in T_DIR makes the daemon reject its load and
 # run with an empty table (decrypt.txt goes 0 bytes) until it is removed.

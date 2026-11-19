@@ -72,12 +72,11 @@ pm_loge() { PM_COMP=${PM_COMP:-core}; pm_logv E "$@"; }
 pm_logn() { PM_COMP=${PM_COMP:-core}; pm_logv N "$@"; }
 pm_logd() { PM_COMP=${PM_COMP:-core}; pm_logv D "$@"; }
 
-# The daemon writes a heartbeat every 30 s forever; without a cap the log
-# grows without bound.  Checked by size, truncated to the last 1000 lines
-# and only when past 128 KB.  At ~200 B per heartbeat that window holds
-# ~25 min of idle tracing plus every recent event -- the old 32 KB window
-# rolled a heavy session off in under 3 minutes, which is exactly how the
-# 2026-10-25 thermal-pressure evidence nearly got lost.
+# The daemon writes a heartbeat every 30 s; without a cap the log grows
+# without bound.  Checked by size, truncated to the last 1000 lines, and
+# only past 128 KB.  At ~200 B per heartbeat that window holds ~25 min of
+# idle tracing plus every recent event; a 32 KB window rolled over in
+# under 3 minutes under load and discarded the surrounding context.
 PM_LOG_MAX=131072
 PM_LOG_KEEP=1000
 pm_log_trim() {
@@ -162,11 +161,10 @@ pm_get() {
 # Runs one tr and one grep; kept as a helper so callers do not re-derive
 # the NUL handling.  Full-tree scans keep their own loops.
 # --- zone classification (single source) ------------------------------------
-# The skin-zone numbers and the protected type patterns used to be hardcoded
-# in four places (apply.sh, status.sh, guard.sh, piano_diag.sh); every drift
-# between them was a latent bug.  They live here now.  The type map is
-# cached once per boot in .tz_types (zoneN type per line) so callers stop
-# paying a fork per zone per pass just to classify.
+# The skin-zone numbers and the protected type patterns live here only.
+# apply.sh, status.sh, guard.sh and piano_diag.sh all read them from this
+# file, so the four cannot drift apart.  The type map is cached once per boot
+# in .tz_types (zoneN type per line) so classifying a zone costs no fork.
 PM_SKIN_ZONES=" 57 58 59 60 63 64 65 66 67 68 "
 # The two clusters the WebUI reports separately ("chip junction" and "GPU").
 # Both are subsets of PM_SILICON_ZONES; they exist so the page can print a
@@ -175,12 +173,11 @@ PM_SKIN_ZONES=" 57 58 59 60 63 64 65 66 67 68 "
 PM_CPU_ZONES=" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 "
 PM_GPU_ZONES=" 23 24 25 26 27 28 29 30 "
 # The core spoof set behind the "normal" tier: CPU clusters plus GPU only.
-# These are the zones that actually heat up under game and benchmark load, and
-# the ones a kernel governor reacts to first.  Everything else -- DSP, modem,
-# camera, video, DDR, SoC-digital -- is left real on purpose: emulating those
-# buys little (they move slowly) and costs the tripwire its last independent
-# readings, so leaving them alone is what makes "normal is safer than max" a
-# fact rather than a slogan.
+# These are the zones that heat up under game and benchmark load and the ones
+# a kernel governor reacts to first.  Everything else -- DSP, modem, camera,
+# video, DDR, SoC-digital -- stays real: they move slowly, so emulating them
+# buys little while costing the tripwire its last independent readings.
+# Keeping them real is what makes the "normal" tier safer than "max".
 PM_SPOOF_CORE_ZONES=" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 \
 16 17 18 19 20 21 23 24 25 26 27 28 29 30 "
 PM_SPOOFABLE=" "
@@ -261,13 +258,11 @@ pm_zone_cache_ok() {
         [ "$_cz_i" -eq "$_cz_pick" ] && _cz_mid="$_cz_line"
         _cz_last="$_cz_line"
     done < "$PM_DIR/.tz_types"
-    # Verify EVERY entry, not the three probes above.  On 2026-10-23 this box
-    # came up with zone 56 = battery and 58 = socd, while the cache from the
-    # previous boot had them the other way round.  First/middle/last all
-    # matched, the cache was declared valid, and 56 -- now the battery -- ended
-    # up in the spoofable set, so the top tier would have pinned the cell's
-    # sensor at 25 C and blinded its own over-temperature protection.  A ROM
-    # that renumbers zones can move exactly one middle entry.
+    # Verify every entry, not just the three probes above.  A ROM can renumber
+    # exactly one middle zone: 56 = battery and 58 = socd have been observed
+    # swapped between builds.  First/middle/last still match, the cache passes
+    # as valid, and 56 -- now the battery -- enters the spoofable set, pinning
+    # the cell's sensor at 25 C and blinding its over-temperature protection.
     # 78 builtin reads are ~15 ms; status.sh runs this on every emul-mode poll, so the check is not free.
     while IFS= read -r _cz_line; do
         [ -n "$_cz_line" ] || continue
@@ -305,11 +300,11 @@ pm_cmdline_is() {
 #
 # restore.sh removes .target as part of its factory cleanup, and both
 # pm_base0 and pm_base6 fall back to the extreme preset's values when it is
-# gone.  So "restore, then apply" used to come back at 3532800/4320000 no
-# matter which preset the label said: turn the module off on 省电, turn it
-# back on, and the UI reported 1555200 while the box ran the full ceiling.
-# The guard only rebuilt these files on its re-arm path, which needs a trip
-# first -- an ordinary off/on cycle never reached it.
+# gone.  So "restore, then apply" comes back at 3532800/4320000 no matter
+# which preset the label says: turn the module off on 省电, turn it back on,
+# and the UI reports 1555200 while the box runs the full ceiling.  Rebuilding
+# on the re-arm path alone is not enough -- that path needs a trip first, so
+# an ordinary off/on cycle would never reach it.
 #
 # One definition, called from tune.sh apply and from the guard's re-arm, so
 # the two paths cannot drift.
@@ -368,9 +363,9 @@ pm_state_rebuild() {
 # could run to the hardware's own critical trip with this module reporting a
 # cool chip the whole way.
 #
-# No counts are written here on purpose.  The gap was 21 when it was found and
-# will change with any ROM that adds or removes a sensor; piano_diag.sh
-# derives the number at runtime and reports the difference instead.
+# No counts are written here: the gap changes with any ROM that adds or
+# removes a sensor.  piano_diag.sh derives the number at runtime and reports
+# the difference instead.
 #
 # The group is defined once, here, and disable_compute_zones derives its
 # protected set from the same two variables -- a second hardcoded list is
@@ -385,13 +380,11 @@ PM_SILICON_ZONES=" 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 \
 # of the 57 inputs are pinned at 25000, so a total PMIC outage still yields a
 # healthy-looking peak and the backstop would never fire exactly when it is
 # needed most.
-# The result goes into PM_TMAX, not stdout.  Callers used to write
-# TC=$(pm_temp_compute) so the maximum could be captured, but a command
-# substitution runs in a subshell: PM_REAL was incremented there and thrown
-# away, leaving the guard's dead-sensor backstop reading a permanent zero and
-# firing on every tick.  Setting a global and echoing the value as well would
-# still lose the count on the $(...) path, so the function only sets globals
-# and callers read PM_TMAX.
+# The result goes into PM_TMAX, not stdout.  Command substitution runs in a
+# subshell, so a caller writing TC=$(pm_temp_compute) would throw away the
+# PM_REAL increment and leave the guard's dead-sensor backstop reading a
+# permanent zero.  Setting the value AND echoing it loses the count the same
+# way, so the function only sets globals and callers read PM_TMAX.
 PM_REAL=0
 PM_TMAX=0
 pm_temp_compute() {
@@ -510,14 +503,13 @@ pm_profile_name() {
 # instead of two per second forever.  The cache file is keyed by policy so a
 # ROM update that ships new rungs invalidates naturally on reboot.
 #
-# A cached ladder is only trusted when it still contains the policy's
+# A cached ladder is only trusted while it still contains the policy's
 # cpuinfo_max_freq.  Under sustained thermal pressure the kernel shrinks
-# scaling_available_frequencies, and a ladder captured during that window
-# lost its top rungs permanently: the extreme preset then snapped to
-# 2918400 instead of 3532800 (measured 2026-10-25, silicon at 89.9 C), and
-# every slider push landed one rung low until the cache was deleted by
-# hand.  Missing hw-top in a cache means "captured under pressure" --
-# re-read live, and cache only ladders that carry the full top.
+# scaling_available_frequencies, and a ladder captured in that window loses
+# its top rungs permanently: the extreme preset then snaps to 2918400 instead
+# of 3532800 (observed at 89.9 C silicon), and every slider push lands one
+# rung low.  A missing hw-top means "captured under pressure" -- re-read live,
+# and cache only ladders that carry the full top.
 pm_ladder() {
     _pl_dir=$1
     _pl_key=${_pl_dir##*/}

@@ -1,8 +1,7 @@
 name: release
 
 # 推 v* tag 即发版：先过一致性闸门，再构建、算校验值、组装正文、发 Release。
-# 闸门刻意放在构建之前 —— 版本号对不上时宁可这次不发，
-# 也不要发出一个 update.json 指向 404 的包。
+# Runs release-gate.mjs before packaging to catch version/tag mismatches early.
 on:
   push:
     tags: ["v*"]
@@ -85,7 +84,7 @@ jobs:
           fi
           node tools/make-release-body.mjs "$TAG" --asset "$BASE" --out "$RUNNER_TEMP/body.md"
 
-      # 已存在的 Release 只更新正文与 Latest，不覆盖已上传的资产 ——
+      # 已存在的 Release 只更新正文与 Latest，不覆盖已上传的资产；
       # 手动补发时不会把别人已经下载过的包换掉。
       - name: 发布 GitHub Release
         env:

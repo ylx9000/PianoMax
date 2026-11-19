@@ -28,22 +28,20 @@ rm -f "$PM_DIR/.mem_boot_done"
 # restoring.  The override itself is released further down.
 rm -f "$PM_DIR/.spoof"
 
-# Release the framework thermal override BEFORE touching the zones.  Turning
-# the module off used to leave IsStatusOverride stuck at true while every zone
-# went back to reporting the truth -- the framework then believed the device
-# was permanently cool, which is exactly the one direction of the spoof that
-# must never stick.  Order matters: unlock first, clean second, so a crash
-# between the two leaves real sensors with a released lock rather than clean
-# sensors with a frozen status.
+# Release the framework thermal override BEFORE touching the zones.  Disabling
+# the module while IsStatusOverride stays true leaves the framework believing
+# the device is permanently cool -- the one direction of the spoof that must
+# never persist.  Order matters: unlock first, clean second, so a crash between
+# the two leaves real sensors with a released lock rather than clean sensors
+# with a frozen status.
 cmd thermalservice reset >/dev/null 2>&1
 
-# Factory state means every zone enabled -- including ones the user or another
-# module disabled on purpose.  That is deliberate: "restore" is the baseline
-# the module promises, not a selective undo.
-# Count what the sweep actually changed.  This loop has been the source of
-# several "the spoof cleared itself" reports: it silently resets every zone and
-# used to leave only the words "restore done" behind, so a restore running in
-# the background looked exactly like the machinery failing.
+# Factory state means every zone enabled, including ones disabled deliberately
+# by the user or another module: "restore" is the baseline this module
+# promises, not a selective undo.
+# Count what the sweep changed.  The loop resets every zone silently; without
+# the count the only output is "restore done", which is indistinguishable from
+# a restore that ran in the background and matched the machinery failing.
 _rz=0
 for z in /sys/class/thermal/thermal_zone*; do
     IFS= read -r _zv < "$z/temp" 2>/dev/null
@@ -153,12 +151,11 @@ for d in "$BUS/LLCC/240b3400.qcom,bwmon-llcc-gold" "$BUS/LLCC/240b7400.qcom,bwmo
     echo 806000 > "$d/max_freq" 2>/dev/null
 done
 
-# oom_score_adj is deliberately not touched here any more.  The old code
-# reset the launcher and SystemUI to 0 to undo the guard's -1000 pin, but the
-# pin itself was removed in beta.4 (a managed app has no correct fixed adj;
-# AMS recomputes it from the foreground/visible state and writes its own value
-# back), so there is nothing left to undo.  Writing 0 here would be a second
-# writer racing AMS for no benefit.
+# oom_score_adj is deliberately not touched here.  A managed app has no
+# correct fixed adj -- AMS recomputes it from the foreground/visible state and
+# writes its own value back -- so the guard does not pin one either, and there
+# is nothing to undo on this path.  Writing 0 here would add a second writer
+# racing AMS for no benefit.
 settings put secure user_refresh_rate 120 2>/dev/null
 settings put secure miui_refresh_rate 120 2>/dev/null
 settings delete secure speed_mode_enable 2>/dev/null

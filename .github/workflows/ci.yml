@@ -1,8 +1,7 @@
 name: ci
 
-# 每次推到 main、以及对 main 的 PR，都跑一遍仓库体检。
-# 检查项与本地 `node tools/ci-check.mjs` 是同一段代码 ——
-# CI 红了能本机原样复现，不用靠猜。
+# Runs the same check script available locally (node tools/ci-check.mjs)
+# on every push to main and every pull request targeting main.
 on:
   push:
     branches: [main]
@@ -29,14 +28,14 @@ jobs:
         with:
           node-version: "24"
 
-      # 三件事一次跑完：shell 语法、全仓 LF、打包产物自洽。
-      # 打包走的是 build.mjs 本身，它在 Linux 上坏了这里立刻红。
+      # shell 语法、全仓 LF、打包产物自洽一次跑完。
+      # 打包走的是 build.mjs 本身，它在 Linux 上坏了这里立刻变红。
       - name: 语法 / 换行 / 打包自洽
         run: node tools/ci-check.mjs
 
       # 再用系统 unzip 过一遍：ci-check 自己解 ZIP 结构查 CRC 与反斜杠，
       # 但「别的解压器能不能读」是另一件事，两条都要绿。
-      # 必须逐个测 —— unzip -t a.zip b.zip 会把 b.zip 当成 a.zip 的成员名去匹配。
+      # 必须逐个测：unzip -t a.zip b.zip 会把 b.zip 当成 a.zip 的成员名去匹配。
       - name: unzip -t 完整性测试
         run: |
           set -euo pipefail
