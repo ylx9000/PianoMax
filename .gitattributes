@@ -1,0 +1,9 @@
+# 全仓统一 LF。Windows 上 clone（core.autocrlf=true）不会再把 CRLF 带进来，
+# 不至于让 sh 在设备上每行末尾多一个 \r。
+* text=auto eol=lf
+
+# 这三种是真二进制，任何换行转换都会毁掉它们：
+#   .conf 是 AES 加密的热表密文，.png 是图片，.zip 是发布产物。
+*.conf binary
+*.png binary
+*.zip binary

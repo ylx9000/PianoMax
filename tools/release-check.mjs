@@ -71,8 +71,11 @@ console.log("  下载 " + dl.length + " 字节  sha256=" + sha256(dl));
 const localZip = path.join(root, "release", "PianoMax-" + ver + ".zip");
 if (existsSync(localZip)) {
   const lz = readFileSync(localZip);
+  // 本地包是「下一次发版的候选」，线上包是「已经发出去的那一份」。
+  // 只要 tag 树与线上资产对得上（§4），两者不同只说明本地还有未发布的
+  // 改动，不是发布链路的错误 —— 记为 WARN。
   if (sha256(lz) === sha256(dl)) ok("下载件 == 本地 release/PianoMax-" + ver + ".zip");
-  else bad("下载件与本地包不同（本地 " + lz.length + " B / " + sha256(lz).slice(0, 16) + "）");
+  else warn("本地包与线上资产不同（本地 " + lz.length + " B / " + sha256(lz).slice(0, 16) + "），说明当前工作树有未发布的改动");
 } else warn("本地没有 release/PianoMax-" + ver + ".zip，跳过比对");
 
 console.log("== 4. 资产内容 vs tag 树 ==");
@@ -97,14 +100,37 @@ const head = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: 
 console.log("  remote=" + remoteTag.slice(0, 7) + "  local=" + localTag.slice(0, 7) + "  HEAD=" + head.slice(0, 7));
 if (remoteTag === localTag) ok("远端 tag == 本地 tag"); else bad("远端 tag " + remoteTag.slice(0, 7) + " != 本地 " + localTag.slice(0, 7));
 // tag 不必等于 HEAD：之后只改文档的提交不该重新打 tag。
-// 真正要保证的是「tag 之后 module/ 没有再变」，那样装包的人拿到的就是最新代码。
+// 真正要保证的是「装包的人拿到的就是最新代码」，所以判据是 tag 之后
+// 有没有改动**会打进 zip 的文件**，不是 module/ 整棵树。  build.mjs 会
+// 跳过 thermal/*/README.txt（那是给重建热表的人看的，不进包），拿整棵树
+// 比对会把一次纯说明文档的修正当成「需要发新版本」。
+// 被跳过的路径规则在这里镜像一份：新增跳过规则时两处一起改。
 if (localTag === head) {
   ok("tag 指向 HEAD");
 } else {
   try {
-    const drift = execFileSync("git", ["-C", root, "diff", "--name-only", localTag, head, "--", "module/"], { encoding: "utf8" }).trim();
-    if (!drift) ok("tag 之后的提交没有改动 module/（仅文档）");
-    else bad("tag 之后 module/ 有变动，需要发新版本: " + drift.split(/\r?\n/).join(", "));
+    const shipped = (p) => !/(^|\/)README\.txt$/.test(p) && !/(^|\/)_/.test(p) && !/(^|\/)\./.test(p);
+    const drift = execFileSync("git", ["-C", root, "diff", "--name-only", localTag, head, "--", "module/"], { encoding: "utf8" })
+      .split(/\r?\n/).map((s) => s.trim()).filter(Boolean).filter(shipped);
+    if (!drift.length) {
+      ok("tag 之后的提交没有改动打包进 zip 的文件（仅文档/说明）");
+    } else {
+      // 注释改动也会让 zip 字节变化，但它不改变设备上的行为，不该逼着发版。
+      // 判据和 tools/ci-check.mjs 语音一致：shell 去掉整行 #、html/js 去掉整行 //
+      // 之后若逐字节相同，就是纯注释。
+      const body = (src, name) => src.split(/\r?\n/)
+        .filter((l) => !(name.endsWith(".html") || name.endsWith(".js") ? /^\s*\/\//.test(l) : /^\s*#/.test(l)))
+        .filter((l) => l.trim() !== "").join("\n");
+      const semantic = drift.filter((f) => {
+        try {
+          const a = execFileSync("git", ["-C", root, "show", localTag + ":" + f], { encoding: "utf8" });
+          const b = readFileSync(path.join(root, f), "utf8");
+          return body(a, f) !== body(b, f);
+        } catch { return true; }
+      });
+      if (!semantic.length) ok("tag 之后的改动全部是注释（" + drift.length + " 个文件），不改变设备行为");
+      else bad("tag 之后有功能性改动，需要发新版本: " + semantic.join(", "));
+    }
   } catch { warn("无法比较 tag 与 HEAD"); }
 }
 

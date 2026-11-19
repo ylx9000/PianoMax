@@ -10,8 +10,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import { fileURLToPath } from "node:url";
 
-const root = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+// Resolve the repo root from this file's own location.  fileURLToPath rather
+// than URL.pathname: pathname is percent-encoded, so a checkout path holding a
+// space or a non-ASCII character yields a path that does not exist.
+const root = path.dirname(fileURLToPath(import.meta.url));
 const modDir = path.join(root, "module");
 
 const prop = fs.readFileSync(path.join(modDir, "module.prop"), "utf8");

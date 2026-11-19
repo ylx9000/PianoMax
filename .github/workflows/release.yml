@@ -1,0 +1,120 @@
+name: release
+
+# 推 v* tag 即发版：先过一致性闸门，再构建、算校验值、组装正文、发 Release。
+# 闸门刻意放在构建之前 —— 版本号对不上时宁可这次不发，
+# 也不要发出一个 update.json 指向 404 的包。
+on:
+  push:
+    tags: ["v*"]
+  # 手动补发：Release 已存在时只更新正文与 Latest 标记，不动已上传的资产。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要补发的 tag（例如 v1.0.0-beta.6）
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 构建并发布
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: 准备 Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      # 闸门：tag == module.prop.version == update.json.version，
+      # versionCode 两处一致，zipUrl 正好指向本次会产出的资产名。
+      - name: 一致性闸门
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: node tools/release-gate.mjs "$TAG"
+
+      - name: 语法 / 换行 / 打包自洽
+        run: node tools/ci-check.mjs
+
+      # ci-check 里已经打过一次包，这里显式再打一次并把校验值落进日志，
+      # 发布失败时能直接从日志看出是哪一步的包。
+      - name: 构建并计算校验值
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          node build.mjs
+          ASSET="release/PianoMax-${TAG}.zip"
+          test -f "$ASSET"
+          unzip -t "$ASSET"
+          echo '--- 产物 ---'
+          ls -l release/*.zip
+          echo '--- 字节数 ---'
+          wc -c "$ASSET"
+          echo '--- SHA-256 ---'
+          sha256sum "$ASSET"
+
+      # 正文里的字节数与 SHA-256 由脚本现场计算写入，
+      # 保证与 tools/release-check.mjs 第 6 项的自洽检查永远对得上。
+      # 手动补发时 Release 与资产可能早已存在：那时正文里的字节数与 SHA-256
+      # 必须描述线上那一份，而不是这次重新构建出来的那一份。先尝试把线上资产
+      # 下载下来当基准；拿不到（首次发版）就用本次构建的包。
+      - name: 组装 Release 正文
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          BASE="release/PianoMax-${TAG}.zip"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if gh release download "$TAG" --pattern "PianoMax-${TAG}.zip" --dir "$RUNNER_TEMP/live" --clobber; then
+              echo "::notice::用线上已上传的资产算校验值"
+              BASE="$RUNNER_TEMP/live/PianoMax-${TAG}.zip"
+            fi
+          fi
+          node tools/make-release-body.mjs "$TAG" --asset "$BASE" --out "$RUNNER_TEMP/body.md"
+
+      # 已存在的 Release 只更新正文与 Latest，不覆盖已上传的资产 ——
+      # 手动补发时不会把别人已经下载过的包换掉。
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          ASSET="release/PianoMax-${TAG}.zip"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::Release $TAG 已存在，只更新正文与 Latest 标记，不覆盖已上传的资产"
+            gh release edit "$TAG" --title "PianoMax $TAG" --notes-file "$RUNNER_TEMP/body.md" --latest
+          else
+            gh release create "$TAG" "$ASSET" \
+              --title "PianoMax $TAG" \
+              --notes-file "$RUNNER_TEMP/body.md" \
+              --latest \
+              --verify-tag
+          fi
+
+      # gh release view --json 的字段里没有 isLatest，Latest 指针得另走接口查。
+      # 这一步只做展示，但把 Latest 打出来是有意义的：beta.6 就出现过
+      # release 建对了、Latest 却还挂在上一版的情况，README 顶部徽章读的正是它。
+      - name: 发布结果
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --json tagName,isPrerelease,url \
+            --jq '.tagName + "  prerelease=" + (.isPrerelease|tostring) + "  " + .url'
+          echo -n "Latest 指针: "
+          gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name
